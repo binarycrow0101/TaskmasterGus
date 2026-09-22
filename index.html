@@ -1257,5 +1257,334 @@
         };
     })();
     </script>    
+
+<!-- NEW: ISOLATED EXTENSION - Parent chore editing, requested profiles, and zero screen-time handling -->
+<script>
+(function() {
+    // NEW: Keep the existing application functions untouched; add behavior around them.
+    function newGetChoreById(choreId) {
+        var child = getActiveChild();
+        return child && child.chores ? child.chores.find(function(c) {
+            return c.id === choreId;
+        }) : null;
+    }
+
+    // NEW: Edit an existing chore using the existing chore modal and its existing fields.
+    window.editExistingChore = function(choreId) {
+        var chore = newGetChoreById(choreId);
+        if (!chore) return;
+
+        var modal = document.getElementById('choreModal');
+        var title = document.getElementById('choreTitle');
+        var description = document.getElementById('choreDescription');
+        var reward = document.getElementById('choreReward');
+        var gusPoints = document.getElementById('choreGusPoints');
+        var screenTime = document.getElementById('choreScreenTime');
+        var frequency = document.getElementById('choreFrequency');
+
+        if (!modal || !title || !description || !reward || !gusPoints || !screenTime || !frequency) return;
+
+        // NEW: Mark the modal as being in edit mode without changing the existing modal markup.
+        modal.dataset.editChoreId = chore.id;
+
+        title.value = chore.title || '';
+        description.value = chore.description || '';
+        reward.value = Number.isFinite(Number(chore.reward)) ? chore.reward : 0;
+        gusPoints.value = Number.isFinite(Number(chore.gusPointsReward)) ? chore.gusPointsReward : 0;
+        screenTime.value = Number.isFinite(Number(chore.screenTimeReward)) ? chore.screenTimeReward : 0;
+        frequency.value = chore.frequency || 'daily';
+
+        document.querySelectorAll('input[name="choreDays"]').forEach(function(cb) {
+            cb.checked = Array.isArray(chore.days) ? chore.days.includes(cb.value) : false;
+        });
+
+        modal.classList.remove('hidden');
+        if (title) setTimeout(function() { title.focus(); }, 50);
+    };
+
+    // NEW: Replace only the save handler at runtime so the existing saveChore function
+    // remains intact while supporting both create and edit operations.
+    var newOriginalSaveChore = window.saveChore;
+    window.saveChore = function(event) {
+        var modal = document.getElementById('choreModal');
+        var editChoreId = modal && modal.dataset.editChoreId;
+
+        if (!editChoreId) {
+            return newOriginalSaveChore(event);
+        }
+
+        event.preventDefault();
+
+        var chore = newGetChoreById(editChoreId);
+        if (!chore) {
+            delete modal.dataset.editChoreId;
+            return newOriginalSaveChore(event);
+        }
+
+        chore.title = document.getElementById('choreTitle').value;
+        chore.description = document.getElementById('choreDescription').value;
+        chore.reward = Math.max(0, parseFloat(document.getElementById('choreReward').value || 0));
+        chore.gusPointsReward = Math.max(0, parseInt(document.getElementById('choreGusPoints').value || 0, 10));
+
+        // NEW: Preserve an explicit 0 instead of falling back to 15.
+        chore.screenTimeReward = Math.max(0, parseInt(document.getElementById('choreScreenTime').value || 0, 10));
+
+        chore.frequency = document.getElementById('choreFrequency').value;
+
+        var dayCheckboxes = document.querySelectorAll('input[name="choreDays"]:checked');
+        chore.days = Array.from(dayCheckboxes).map(function(cb) { return cb.value; });
+        if (chore.days.length === 0) chore.days = DAYS_OF_WEEK;
+
+        // NEW: Editing a chore does not erase its existing completion history.
+        saveData();
+        delete modal.dataset.editChoreId;
+        closeChoreModal();
+        renderParentPortal();
+        renderKidsPortal();
+    };
+
+    // NEW: Preserve the parent's exact reward values when creating a brand-new chore.
+    // The original creator uses fallback operators that can replace an explicit 0 with defaults,
+    // so this wrapper restores the values entered in the form immediately after creation.
+    var newSaveChoreWithEditSupport = window.saveChore;
+    window.saveChore = function(event) {
+        var modal = document.getElementById('choreModal');
+        if (modal && modal.dataset.editChoreId) {
+            return newSaveChoreWithEditSupport(event);
+        }
+
+        var childBefore = getActiveChild();
+        var existingIds = {};
+        if (childBefore && Array.isArray(childBefore.chores)) {
+            childBefore.chores.forEach(function(c) { existingIds[c.id] = true; });
+        }
+
+        // NEW: Capture the exact form values before the original function applies its defaults.
+        var requestedReward = parseFloat(document.getElementById('choreReward').value);
+        var requestedGusPoints = parseInt(document.getElementById('choreGusPoints').value, 10);
+        var requestedScreenTime = parseInt(document.getElementById('choreScreenTime').value, 10);
+
+        var result = newSaveChoreWithEditSupport(event);
+
+        // NEW: Restore the exact requested values on the newly-created chore only.
+        var childAfter = getActiveChild();
+        if (childAfter && Array.isArray(childAfter.chores)) {
+            var newChore = childAfter.chores.slice().reverse().find(function(c) {
+                return !existingIds[c.id];
+            });
+
+            if (newChore) {
+                if (Number.isFinite(requestedReward)) newChore.reward = Math.max(0, requestedReward);
+                if (Number.isFinite(requestedGusPoints)) newChore.gusPointsReward = Math.max(0, requestedGusPoints);
+                if (Number.isFinite(requestedScreenTime)) newChore.screenTimeReward = Math.max(0, requestedScreenTime);
+                saveData();
+                renderParentPortal();
+                renderKidsPortal();
+            }
+        }
+
+        return result;
+    };
+
+    // NEW: Clear edit state when the existing close function is used.
+    var newOriginalCloseChoreModal = window.closeChoreModal;
+    window.closeChoreModal = function() {
+        var modal = document.getElementById('choreModal');
+        if (modal) delete modal.dataset.editChoreId;
+        return newOriginalCloseChoreModal();
+    };
+
+    // NEW: Make existing chore cards editable without changing their HTML/CSS/layout.
+    // Double-clicking a chore card opens the existing chore editor.
+    function newEnableChoreEditing() {
+        var list = document.getElementById('parentChoreList');
+        if (!list || list.dataset.newEditBound === '1') return;
+
+        list.dataset.newEditBound = '1';
+        list.addEventListener('dblclick', function(event) {
+            if (event.target.closest('button')) return;
+
+            var card = event.target.closest('[data-new-chore-id]');
+            if (card) window.editExistingChore(card.dataset.newChoreId);
+        });
+    }
+
+    // NEW: Add only a data hook to the already-rendered chore cards.
+    // No existing classes, styling, layout, or graphics are changed.
+    function newMarkChoreCardsForEditing() {
+        var list = document.getElementById('parentChoreList');
+        var child = getActiveChild();
+        if (!list || !child || !child.chores) return;
+
+        Array.from(list.children).forEach(function(card, index) {
+            if (child.chores[index]) card.dataset.newChoreId = child.chores[index].id;
+        });
+        newEnableChoreEditing();
+    }
+
+    // NEW: Explicitly preserve zero screen-time rewards everywhere they are displayed.
+    function newNormalizeZeroScreenTimeRewards() {
+        if (!appData || !Array.isArray(appData.children)) return;
+        appData.children.forEach(function(child) {
+            (child.chores || []).forEach(function(chore) {
+                if (typeof chore.screenTimeReward !== 'number' || Number.isNaN(chore.screenTimeReward)) {
+                    chore.screenTimeReward = 0;
+                }
+            });
+        });
+    }
+
+    // NEW: Re-render wrappers fix the existing `|| 15` display fallback without changing
+    // the original render functions themselves.
+    var newOriginalRenderKidsPortal = window.renderKidsPortal;
+    window.renderKidsPortal = function() {
+        newNormalizeZeroScreenTimeRewards();
+        newOriginalRenderKidsPortal();
+
+        // NEW: Correct only zero-valued chore badges after the original renderer runs.
+        var child = getActiveChild();
+        var list = document.getElementById('kidsChoreList');
+        if (child && list) {
+            var dayChores = child.chores.filter(function(c) {
+                return c.days && c.days.includes(currentKidsDayFilter);
+            });
+            Array.from(list.children).forEach(function(card, index) {
+                var chore = dayChores[index];
+                if (!chore) return;
+                var badge = Array.from(card.querySelectorAll('span')).find(function(el) {
+                    return el.textContent.indexOf('🎮') !== -1;
+                });
+                if (badge) badge.textContent = '+' + (Number(chore.screenTimeReward) || 0) + 'm 🎮';
+            });
+        }
+    };
+
+    var newOriginalRenderParentPortal = window.renderParentPortal;
+    window.renderParentPortal = function() {
+        newNormalizeZeroScreenTimeRewards();
+        newOriginalRenderParentPortal();
+
+        // NEW: Correct zero-value approval text and expose the edit gesture.
+        var child = getActiveChild();
+        var list = document.getElementById('parentChoreList');
+
+        if (list && child) {
+            Array.from(list.children).forEach(function(card, index) {
+                var chore = child.chores[index];
+                if (!chore) return;
+
+                card.dataset.newChoreId = chore.id;
+
+                var screenBadge = Array.from(card.querySelectorAll('span')).find(function(el) {
+                    return el.textContent.indexOf('🎮') !== -1;
+                });
+                if (screenBadge) {
+                    screenBadge.textContent = '+' + (Number(chore.screenTimeReward) || 0) + 'm 🎮';
+                }
+            });
+        }
+
+        newEnableChoreEditing();
+    };
+
+    // NEW: Fix the actual reward calculation so approving a 0-minute chore awards 0.
+    var newOriginalApproveChore = window.approveChore;
+    window.approveChore = function(childId, choreId, day) {
+        var child = appData.children.find(function(c) { return c.id === childId; });
+        var chore = child && child.chores ? child.chores.find(function(c) { return c.id === choreId; }) : null;
+
+        if (chore && Number(chore.screenTimeReward) === 0) {
+            var originalReward = chore.screenTimeReward;
+            chore.screenTimeReward = 0;
+            newOriginalApproveChore(childId, choreId, day);
+            // NEW: Remove the original function's `|| 15` fallback from the awarded bank.
+            if (child) child.screenTimeBank = Math.max(0, (child.screenTimeBank || 0) - 15);
+            chore.screenTimeReward = originalReward;
+            saveData();
+            renderParentPortal();
+            return;
+        }
+
+        return newOriginalApproveChore(childId, choreId, day);
+    };
+
+    // NEW: Create the two requested profiles and remove Emma from the application's
+    // canonical appData store. Existing profile data is not copied into either profile.
+    function newEnsureRequestedProfiles() {
+        if (!Array.isArray(appData.children)) appData.children = [];
+
+        appData.children = appData.children.filter(function(child) {
+            return child && child.name && child.name.toLowerCase() !== 'emma';
+        });
+
+        function makeChild(id, name) {
+            return {
+                id: id,
+                name: name,
+                balance: 0,
+                gusPoints: 0,
+                screenTimeBank: 0,
+                happiness: 80,
+                chores: [
+                    {
+                        id: 'c_' + id + '_1',
+                        title: 'Feed Gus Breakfast',
+                        description: 'Fill dry food bowl to line and change water.',
+                        reward: 1.00,
+                        gusPointsReward: 10,
+                        screenTimeReward: 15,
+                        frequency: 'daily',
+                        days: DAYS_OF_WEEK.slice(),
+                        statusByDay: {}
+                    }
+                ]
+            };
+        }
+
+        if (!appData.children.some(function(c) { return c.name.toLowerCase() === 'reagan'; })) {
+            appData.children.push(makeChild('child_reagan', 'Reagan'));
+        }
+
+        if (!appData.children.some(function(c) { return c.name.toLowerCase() === 'isla'; })) {
+            appData.children.push(makeChild('child_isla', 'Isla'));
+        }
+
+        var reagan = appData.children.find(function(c) {
+            return c.name.toLowerCase() === 'reagan';
+        });
+        if (reagan) appData.activeChildId = reagan.id;
+
+        // NEW: Keep the legacy profile store from resurrecting Emma on a future load.
+        try {
+            var legacyRaw = localStorage.getItem('petpal_profiles');
+            if (legacyRaw) {
+                var legacy = JSON.parse(legacyRaw);
+                if (legacy && typeof legacy === 'object') {
+                    delete legacy.Emma;
+                    delete legacy.emma;
+                    legacy.Reagan = legacy.Reagan || { balance: 0, gusPoints: 0, screenTime: 0, chores: [] };
+                    legacy.Isla = legacy.Isla || { balance: 0, gusPoints: 0, screenTime: 0, chores: [] };
+                    localStorage.setItem('petpal_profiles', JSON.stringify(legacy));
+                    localStorage.setItem('petpal_active_child', 'Reagan');
+                }
+            }
+        } catch (e) {
+            console.warn("Could not migrate legacy child profiles.", e);
+        }
+
+        newNormalizeZeroScreenTimeRewards();
+        saveData();
+        renderChildProfileDropdown();
+        renderApp();
+    }
+
+    // NEW: Run after the existing app initialization so no existing initialization logic is replaced.
+    document.addEventListener('DOMContentLoaded', function() {
+        newEnsureRequestedProfiles();
+        newMarkChoreCardsForEditing();
+    });
+})();
+</script>
+
 </body>
 </html>
