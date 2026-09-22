@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PetPal - Gus the Tibetan Terrier & Chore Tracker</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@500;600;700&display=swap');
+        
+        body {
+            font-family: 'Quicksand', sans-serif;
+            background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 50%, #fef3c7 100%);
+            min-height: 100vh;
+        }
+
+        h1, h2, h3, h4, .font-fun {
+            font-family: 'Fredoka', cursive;
+        }
+
+        /* Gus Animations */
+        @keyframes tailWag {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(22deg); }
+        }
+
+        @keyframes earFlapLeft {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(-10deg); }
+        }
+
+        @keyframes earFlapRight {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(10deg); }
+        }
+
+        @keyframes floatGus {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+            100% { transform: translateY(0px); }
+        }
+
+        @keyframes shakeGrumpy {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-4px) rotate(-2deg); }
+            80% { transform: translateX(4px) rotate(2deg); }
+        }
+
+        @keyframes happyBounce {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-16px) scale(1.05, 0.95); }
+        }
+
+        .gus-float {
+            animation: floatGus 3.5s ease-in-out infinite;
+        }
+
+        .gus-bounce {
+            animation: happyBounce 0.6s ease-in-out 3;
+        }
+
+        .gus-tail {
+            transform-origin: 155px 150px;
+            animation: tailWag 0.6s ease-in-out infinite;
+        }
+
+        .gus-ear-l {
+            transform-origin: 65px 70px;
+            animation: earFlapLeft 2.2s ease-in-out infinite;
+        }
+
+        .gus-ear-r {
+            transform-origin: 135px 70px;
+            animation: earFlapRight 2.2s ease-in-out infinite;
+        }
+
+        .gus-grumpy {
+            animation: shakeGrumpy 1.2s ease-in-out infinite;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="text-slate-800 flex flex-col min-h-screen pb-12">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-white/85 backdrop-blur-md sticky top-0 z-40 border-b border-slate-200/80 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+            
+            <!-- Logo & Title -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-400 via-orange-400 to-indigo-600 flex items-center justify-center text-white shadow-md text-xl font-bold">
+                    <i class="fa-solid fa-dog"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide bg-gradient-to-r from-amber-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                        PetPal
+                    </h1>
+                    <p class="text-[11px] text-slate-500 font-semibold hidden sm:block">Gus the Tibetan Terrier & Pocket Money Tracker</p>
+                </div>
+            </div>
+
+            <!-- Profile & Portal Controls -->
+            <div class="flex items-center gap-2 sm:gap-4">
+                
+                <!-- Child Switcher -->
+                <div id="childSelectorContainer" class="flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
+                    <!-- Child profile buttons render dynamically -->
+                </div>
+
+                <!-- Mode Switcher Button -->
+                <button id="portalToggleBtn" onclick="handlePortalToggle()" class="px-3.5 py-1.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 bg-indigo-100 text-indigo-800 hover:bg-indigo-200 shadow-sm">
+                    <i id="portalIcon" class="fa-solid fa-child"></i>
+                    <span id="portalText">Kids View</span>
+                </button>
+
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 space-y-6">
+
+        <!-- PARENT PORTAL VIEW -->
+        <div id="parentPortalView" class="hidden space-y-6">
+            
+            <!-- Admin Banner -->
+            <div class="bg-gradient-to-r from-indigo-700 via-purple-700 to-slate-800 text-white rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                <div>
+                    <div class="flex items-center gap-2 text-indigo-200 text-xs font-bold uppercase tracking-wider mb-1">
+                        <i class="fa-solid fa-user-shield"></i> Parent Command Center
+                    </div>
+                    <h2 class="text-2xl md:text-3xl font-bold">Parent Portal Overview</h2>
+                    <p class="text-indigo-100 text-sm mt-1">
+                        Manage chores, approve payouts, and set allowances for 
+                        <button onclick="editActiveChildName()" title="Click to edit name" class="font-bold underline text-amber-300 hover:text-amber-200 inline-flex items-center gap-1 cursor-pointer">
+                            <span id="parentActiveChildName">Emma</span>
+                            <i class="fa-solid fa-pen text-[10px]"></i>
+                        </button>.
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="openNewChoreModal()" class="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-plus-circle"></i> Add New Chore
+                    </button>
+                    <button onclick="switchChildProfile()" class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-bold text-sm backdrop-blur-sm transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-users"></i> Add Profile
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Pending Approvals</div>
+                        <div id="parentPendingCount" class="text-2xl font-bold text-slate-800">0 Tasks</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-wallet"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Current Bank Balance</div>
+                        <div id="parentBankTotal" class="text-2xl font-bold text-emerald-600">£0.00</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Gus Happiness Level</div>
+                        <div id="parentGusMoodText" class="text-2xl font-bold text-indigo-600">100% Happy</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Parent Navigation Tabs -->
+            <div class="flex border-b border-slate-200 text-sm font-bold gap-2 overflow-x-auto">
+                <button onclick="switchParentTab('approvals')" id="tabBtnApprovals" class="px-5 py-3 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-list-check"></i> Pending Approvals <span id="pendingBadge" class="ml-1 px-2 py-0.5 text-xs bg-amber-500 text-white rounded-full">0</span>
+                </button>
+                <button onclick="switchParentTab('chores')" id="tabBtnChores" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-tasks"></i> Chore Management
+                </button>
+                <button onclick="switchParentTab('bank')" id="tabBtnBank" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-piggy-bank"></i> Bank & Payout Ledger
+                </button>
+                <button onclick="switchParentTab('settings')" id="tabBtnSettings" class="px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-sliders"></i> Pet & Security
+                </button>
+            </div>
+
+            <!-- Tab Content 1: Pending Approvals Queue -->
+            <div id="parentTabApprovals" class="space-y-4">
+                <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-notch text-amber-500 animate-spin"></i> Tasks Awaiting Parent Verification
+                    </h3>
+                    <div id="pendingApprovalQueue" class="space-y-3">
+                        <!-- Pending item cards inserted here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content 2: Chore Manager -->
+            <div id="parentTabChores" class="hidden space-y-4">
+                <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-bold text-slate-800">Weekly Chore List & Allowances</h3>
+                        <button onclick="openNewChoreModal()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs">
+                            <i class="fa-solid fa-plus"></i> New Chore
+                        </button>
+                    </div>
+                    <div id="parentChoreList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Chores render here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content 3: Bank & Payout Ledger -->
+            <div id="parentTabBank" class="hidden space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <!-- Payout / Deposit Actions -->
+                    <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-hand-holding-dollar text-emerald-600"></i> Cash Payout & Allowance Adjustment
+                        </h3>
+                        <p class="text-xs text-slate-500">Log physical cash paid out to your daughter or add custom bonus pocket money.</p>
+                        
+                        <div class="space-y-3 pt-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Amount (£)</label>
+                                <input type="number" id="payoutAmountInput" step="0.50" min="0.50" placeholder="e.g. 5.00" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Note / Description</label>
+                                <input type="text" id="payoutNoteInput" placeholder="e.g. Physical cash payout for weekend treat" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3 pt-2">
+                                <button onclick="processBankTransaction('payout')" class="py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-minus-circle"></i> Deduct Cash Paid
+                                </button>
+                                <button onclick="processBankTransaction('deposit')" class="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-plus-circle"></i> Add Bonus Funds
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Savings Goal Manager -->
+                    <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-bullseye text-amber-500"></i> Current Wish List Goal
+                        </h3>
+                        <div id="parentWishlistDisplay" class="space-y-3">
+                            <!-- Wishlist summary -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transaction Audit History -->
+                <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                    <h3 class="text-lg font-bold text-slate-800">Transaction & Allowance History</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="text-xs uppercase text-slate-400 border-b border-slate-100">
+                                    <th class="pb-3">Date</th>
+                                    <th class="pb-3">Description</th>
+                                    <th class="pb-3">Type</th>
+                                    <th class="pb-3 text-right">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody id="parentLedgerBody" class="text-sm divide-y divide-slate-100">
+                                <!-- Transaction rows dynamically inserted -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content 4: Settings & Gus Admin -->
+            <div id="parentTabSettings" class="hidden space-y-4">
+                <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+                    <h3 class="text-lg font-bold text-slate-800">Parent Portal Security & Pet Sensitivity</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-3">
+                            <label class="block text-xs font-bold text-slate-600">4-Digit Parent PIN</label>
+                            <input type="password" id="parentPinSetting" maxlength="4" value="1234" class="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm font-mono tracking-widest">
+                            <button onclick="saveParentPin()" class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">Update PIN</button>
+                        </div>
+                        <div class="space-y-3">
+                            <label class="block text-xs font-bold text-slate-600">Gus Mood Sensitivity</label>
+                            <p class="text-xs text-slate-500">Adjust how quickly Gus becomes grumpy when chores are missed.</p>
+                            <select id="gusDecaySetting" onchange="saveGusSettings()" class="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm">
+                                <option value="easy">Easy (Gus stays happy easily)</option>
+                                <option value="normal" selected>Normal (Requires ~60% daily chore rate)</option>
+                                <option value="strict">Strict (Requires 100% daily chore rate)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- KIDS VIEW PORTAL -->
+        <div id="kidsPortalView" class="space-y-6">
+            
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- Left Column: Gus Pet Companion & Interactions -->
+                <div class="lg:col-span-5 space-y-6">
+                    <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-md text-center relative overflow-hidden flex flex-col items-center">
+                        
+                        <!-- Gus Mood Tag -->
+                        <div id="gusMoodBadge" class="absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-heart"></i> <span id="gusMoodLabel">Feeling Great!</span>
+                        </div>
+
+                        <!-- Level & XP Badge -->
+                        <div class="absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 flex items-center gap-1 shadow-sm">
+                            <i class="fa-solid fa-star text-amber-500"></i> Lv. <span id="gusLevel">1</span>
+                        </div>
+
+                        <!-- Gus Animated Visual Canvas Container -->
+                        <div id="gusAvatarContainer" class="w-56 h-56 my-4 cursor-pointer relative flex items-center justify-center transition-transform hover:scale-105" onclick="interactWithGus('pet')">
+                            
+                            <!-- Gus SVG (Tibetan Terrier with LEFT EYE PATCH) -->
+                            <svg id="gusSvg" class="w-full h-full gus-float" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                                <defs>
+                                    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+                                        <feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity="0.15"/>
+                                    </filter>
+                                </defs>
+
+                                <!-- Tail (Black & White Shaggy) -->
+                                <path id="gusTail" class="gus-tail" d="M 150 140 Q 185 110 170 80 Q 155 70 145 95 Z" fill="#1e293b" stroke="#f8fafc" stroke-width="2"/>
+
+                                <!-- Back Legs -->
+                                <ellipse cx="65" cy="165" rx="16" ry="12" fill="#1e293b" />
+                                <ellipse cx="135" cy="165" rx="16" ry="12" fill="#1e293b" />
+
+                                <!-- Body (Mainly Black with White Chest Fur Patch) -->
+                                <ellipse cx="100" cy="140" rx="55" ry="40" fill="#1e293b" filter="url(#shadow)"/>
+                                <path d="M 85 115 Q 100 155 115 115 Q 100 130 85 115 Z" fill="#ffffff" />
+
+                                <!-- Front Paws (White tips) -->
+                                <ellipse cx="78" cy="172" rx="12" ry="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+                                <ellipse cx="122" cy="172" rx="12" ry="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+
+                                <!-- Head (Fluffy & White) -->
+                                <circle cx="100" cy="80" r="46" fill="#ffffff" filter="url(#shadow)"/>
+                                <!-- Fluffy hair tufts on top -->
+                                <path d="M 80 40 Q 90 20 100 38 Q 110 20 120 40 Z" fill="#ffffff" />
+
+                                <!-- Black Ears (Left and Right) -->
+                                <path class="gus-ear-l" d="M 58 60 Q 30 75 42 115 Q 65 110 62 75 Z" fill="#0f172a" />
+                                <path class="gus-ear-r" d="M 142 60 Q 170 75 158 115 Q 135 110 138 75 Z" fill="#0f172a" />
+
+                                <!-- DISTINCT BLACK EYE PATCH OVER GUS'S LEFT EYE -->
+                                <!-- Anatomical Left Eye is on the Right Side from Viewer's Perspective -->
+                                <path id="leftEyePatch" d="M 108 60 C 135 55 142 88 122 92 C 105 95 102 70 108 60 Z" fill="#0f172a" />
+
+                                <!-- Eyes -->
+                                <circle cx="80" cy="74" r="5" fill="#0f172a" /> <!-- Right Eye -->
+                                <circle id="gusLeftEye" cx="120" cy="74" r="5" fill="#ffffff" /> <!-- Left Eye inside patch -->
+                                
+                                <!-- Eye Sparkles -->
+                                <circle cx="78" cy="72" r="1.5" fill="#ffffff" />
+                                <circle cx="118" cy="72" r="1.5" fill="#0f172a" />
+
+                                <!-- Cute Cute Dog Nose (Black) -->
+                                <polygon points="94,84 106,84 100,92" fill="#0f172a" rx="2" />
+
+                                <!-- Tongue / Mouth -->
+                                <path id="gusMouth" d="M 92 95 Q 100 102 108 95" stroke="#0f172a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                                <path id="gusTongue" d="M 97 97 Q 100 108 103 97 Z" fill="#f43f5e" class="transition-all" />
+
+                                <!-- Fluffy Tibetan Beard/Muzzle fluff -->
+                                <path d="M 75 90 Q 100 115 125 90 Q 100 100 75 90 Z" fill="#f8fafc" opacity="0.8"/>
+                            </svg>
+                        </div>
+
+                        <!-- Name & Interactive Actions -->
+                        <h3 class="text-2xl font-bold text-slate-800 font-fun">Gus</h3>
+                        <p id="gusSpeechBubble" class="text-xs font-semibold text-slate-500 bg-slate-100 px-4 py-2 rounded-2xl my-2 border border-slate-200">
+                            "Woof! Complete your chores to earn pocket money and keep me happy!"
+                        </p>
+
+                        <!-- Action Buttons -->
+                        <div class="grid grid-cols-3 gap-2 w-full mt-2">
+                            <button onclick="interactWithGus('treat')" class="py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-2xl text-xs font-bold flex flex-col items-center gap-1 transition-all">
+                                <i class="fa-solid fa-cookie-bite text-base text-amber-600"></i> Treat Gus
+                            </button>
+                            <button onclick="interactWithGus('brush')" class="py-2.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-2xl text-xs font-bold flex flex-col items-center gap-1 transition-all">
+                                <i class="fa-solid fa-broom text-base text-sky-600"></i> Groom Fur
+                            </button>
+                            <button onclick="interactWithGus('play')" class="py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold flex flex-col items-center gap-1 transition-all">
+                                <i class="fa-solid fa-bone text-base text-emerald-600"></i> Play Fetch
+                            </button>
+                        </div>
+
+                    </div>
+
+                    <!-- Piggy Bank Savings Card -->
+                    <div class="bg-gradient-to-br from-emerald-500 to-teal-700 text-white rounded-3xl p-6 shadow-md relative overflow-hidden space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <span class="text-xs font-bold uppercase tracking-wider text-emerald-100">My Pocket Money</span>
+                                <div id="kidsBankBalance" class="text-4xl font-bold font-fun">£0.00</div>
+                            </div>
+                            <div class="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-3xl text-amber-300 shadow-inner">
+                                <i class="fa-solid fa-piggy-bank"></i>
+                            </div>
+                        </div>
+
+                        <!-- Wishlist Savings Bar -->
+                        <div id="kidsWishlistCard" class="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 space-y-2">
+                            <!-- Dynamically loaded wishlist goal -->
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Right Column: Chores & Tasks Checklist -->
+                <div class="lg:col-span-7 space-y-4">
+                    <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-md space-y-4">
+                        
+                        <!-- Header & Day Banner -->
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-extrabold uppercase tracking-wider" id="currentDayBadge">TODAY</span>
+                                    <span class="text-xs font-bold text-slate-500" id="currentFullDate">Wednesday, Sep 23</span>
+                                </div>
+                                <h3 class="text-xl font-bold text-slate-800 font-fun mt-1">My Daily Tasks</h3>
+                            </div>
+                            
+                            <!-- Day Selection Tabs -->
+                            <div id="dayFilterContainer" class="flex bg-slate-100 p-1 rounded-2xl text-xs font-bold gap-1 overflow-x-auto">
+                                <!-- Day selection tabs render dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Chores List -->
+                        <div id="kidsChoreList" class="space-y-3 pt-2">
+                            <!-- Chore items render here -->
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Modal: Add / Edit Chore -->
+    <div id="choreModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="text-lg font-bold text-slate-800" id="choreModalTitle">Create New Chore</h3>
+                <button onclick="closeChoreModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+
+            <form id="choreForm" onsubmit="saveChore(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Chore Title</label>
+                    <input type="text" id="choreTitle" required placeholder="e.g. Feed Gus, Clean Bedroom, Do Homework" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Task Details / Instructions (Optional)</label>
+                    <textarea id="choreDescription" rows="2" placeholder="e.g. Put clothes in laundry basket, make bed neatly, and dust desk." class="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Reward (£)</label>
+                        <input type="number" id="choreReward" step="0.10" min="0.10" required value="1.00" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Frequency</label>
+                        <select id="choreFrequency" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="daily">Daily Target</option>
+                            <option value="weekly">Weekly Target</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Assigned Days</label>
+                    <div class="flex flex-wrap gap-2 text-xs font-bold">
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Mon" checked> Mon</label>
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Tue" checked> Tue</label>
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Wed" checked> Wed</label>
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Thu" checked> Thu</label>
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Fri" checked> Fri</label>
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Sat" checked> Sat</label>
+                        <label class="flex items-center gap-1 bg-slate-100 px-2.5 py-1.5 rounded-lg cursor-pointer"><input type="checkbox" name="choreDays" value="Sun" checked> Sun</label>
+                    </div>
+                </div>
+
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeChoreModal()" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md">Save Chore</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Application Script Engine -->
+    <script>
+        const DAYS_LIST = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+        function getCurrentDayName() {
+            const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+            return days[new Date().getDay()];
+        }
+
+        // Web Audio Sound Engine
+        const AudioEngine = {
+            ctx: null,
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            },
+            playCoin() {
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(987.77, now); // B5
+                osc.frequency.exponentialRampToValueAtTime(1318.51, now + 0.15); // E6
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.25);
+            },
+            playBark() {
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.linearRampToValueAtTime(110, now + 0.12);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+        };
+
+        // App Initial State
+        const INITIAL_STATE = {
+            isParentMode: false,
+            parentPin: "1234",
+            activeChildId: "c1",
+            selectedDay: getCurrentDayName(), // Default view to TODAY's day
+            children: [
+                {
+                    id: "c1",
+                    name: "Emma",
+                    balance: 12.50,
+                    level: 2,
+                    wishlist: { title: "LEGO Puppy Set", target: 25.00 },
+                    ledger: [
+                        { id: "l1", date: "2026-09-20", desc: "Cleaned Bedroom", amount: 2.00, type: "credit" },
+                        { id: "l2", date: "2026-09-21", desc: "Fed Gus Dinner", amount: 1.00, type: "credit" },
+                        { id: "l3", date: "2026-09-21", desc: "Physical Cash Payout - Ice Cream", amount: -3.00, type: "debit" }
+                    ],
+                    chores: [
+                        { 
+                            id: "ch1", 
+                            title: "Feed Gus Breakfast & Fresh Water", 
+                            description: "Fill Gus's bowl with dry food and change his water bowl with cool water.",
+                            reward: 1.00, 
+                            frequency: "daily", 
+                            days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], 
+                            statusByDay: { Mon: "approved", Tue: "approved", Wed: "pending", Thu: "open", Fri: "open", Sat: "open", Sun: "open" }
+                        },
+                        { 
+                            id: "ch2", 
+                            title: "Brush Gus's Fluffy Coat", 
+                            description: "Gently brush Gus's head and fur to remove knots.",
+                            reward: 1.50, 
+                            frequency: "daily", 
+                            days: ["Mon", "Wed", "Fri", "Sat"], 
+                            statusByDay: { Mon: "approved", Wed: "open", Fri: "open", Sat: "open" } 
+                        },
+                        { 
+                            id: "ch3", 
+                            title: "Tidy Bedroom & Make Bed", 
+                            description: "Put away toys and make your bed neatly.",
+                            reward: 2.00, 
+                            frequency: "daily", 
+                            days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], 
+                            statusByDay: { Mon: "approved", Tue: "approved", Wed: "open", Thu: "open", Fri: "open", Sat: "open", Sun: "open" } 
+                        },
+                        { 
+                            id: "ch4", 
+                            title: "Finish Homework & Reading", 
+                            description: "Complete homework tasks and read 15 minutes.",
+                            reward: 2.50, 
+                            frequency: "weekly", 
+                            days: ["Mon", "Wed", "Fri"], 
+                            statusByDay: { Mon: "approved", Wed: "open", Fri: "open" } 
+                        }
+                    ]
+                },
+                {
+                    id: "c2",
+                    name: "Chloe",
+                    balance: 8.00,
+                    level: 1,
+                    wishlist: { title: "Art & Craft Marker Kit", target: 15.00 },
+                    ledger: [
+                        { id: "l4", date: "2026-09-21", desc: "Emptied Dishwasher", amount: 1.50, type: "credit" }
+                    ],
+                    chores: [
+                        { 
+                            id: "ch5", 
+                            title: "Empty Dishwasher", 
+                            description: "Put plastic plates and cutlery back in drawers carefully.",
+                            reward: 1.50, 
+                            frequency: "daily", 
+                            days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], 
+                            statusByDay: { Mon: "approved", Tue: "approved", Wed: "open", Thu: "open", Fri: "open", Sat: "open", Sun: "open" } 
+                        },
+                        { 
+                            id: "ch6", 
+                            title: "Practice Piano (20 Mins)", 
+                            description: "Play scales and practice song book pieces.",
+                            reward: 2.00, 
+                            frequency: "daily", 
+                            days: ["Mon", "Tue", "Wed", "Thu", "Fri"], 
+                            statusByDay: { Mon: "approved", Tue: "approved", Wed: "open", Thu: "open", Fri: "open" } 
+                        }
+                    ]
+                }
+            ]
+        };
+
+        let appData = {};
+
+        // Helper to normalize chore object statusByDay
+        function ensureChoreStatusByDay(chore) {
+            if (!chore.statusByDay) {
+                chore.statusByDay = {};
+                const legacyStatus = chore.status || 'open';
+                (chore.days || DAYS_LIST).forEach(d => {
+                    chore.statusByDay[d] = legacyStatus;
+                });
+            }
+        }
+
+        // Load & Save Storage
+        function loadData() {
+            const saved = localStorage.getItem('petpal_app_data');
+            if (saved) {
+                try {
+                    appData = JSON.parse(saved);
+                } catch (e) {
+                    appData = INITIAL_STATE;
+                }
+            } else {
+                appData = INITIAL_STATE;
+            }
+
+            if (!appData.selectedDay) {
+                appData.selectedDay = getCurrentDayName();
+            }
+
+            // Ensure schema integrity for statusByDay
+            appData.children.forEach(c => {
+                c.chores.forEach(ch => ensureChoreStatusByDay(ch));
+            });
+        }
+
+        function saveData() {
+            localStorage.setItem('petpal_app_data', JSON.stringify(appData));
+            renderState();
+        }
+
+        function getActiveChild() {
+            return appData.children.find(c => c.id === appData.activeChildId) || appData.children[0];
+        }
+
+        // Toggle Portal Modes
+        function handlePortalToggle() {
+            if (appData.isParentMode) {
+                appData.isParentMode = false;
+                saveData();
+            } else {
+                const pin = prompt("Enter 4-Digit Parent PIN:", "");
+                if (pin === appData.parentPin) {
+                    appData.isParentMode = true;
+                    saveData();
+                } else if (pin !== null) {
+                    alert("Incorrect PIN code!");
+                }
+            }
+        }
+
+        function switchChildProfile() {
+            const childName = prompt("Enter new profile name:");
+            if (childName && childName.trim()) {
+                const newChild = {
+                    id: "c_" + Date.now(),
+                    name: childName.trim(),
+                    balance: 0.00,
+                    level: 1,
+                    wishlist: { title: "Toy", target: 10.00 },
+                    ledger: [],
+                    chores: [
+                        { 
+                            id: "ch_" + Date.now(), 
+                            title: "Feed Gus", 
+                            description: "Give Gus fresh water and dog food.",
+                            reward: 1.00, 
+                            frequency: "daily", 
+                            days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], 
+                            statusByDay: { Mon: "open", Tue: "open", Wed: "open", Thu: "open", Fri: "open", Sat: "open", Sun: "open" } 
+                        }
+                    ]
+                };
+                appData.children.push(newChild);
+                appData.activeChildId = newChild.id;
+                saveData();
+            }
+        }
+
+        function editActiveChildName() {
+            const child = getActiveChild();
+            const newName = prompt("Enter new name for " + child.name + ":", child.name);
+            if (newName && newName.trim()) {
+                child.name = newName.trim();
+                saveData();
+            }
+        }
+
+        // Render Application UI
+        function renderState() {
+            const child = getActiveChild();
+
+            // Header Profile Buttons
+            const selectorContainer = document.getElementById('childSelectorContainer');
+            selectorContainer.innerHTML = appData.children.map(c => `
+                <button onclick="selectChild('${c.id}')" class="px-3 py-1 rounded-xl text-xs font-bold transition-all ${c.id === child.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">
+                    ${c.name}
+                </button>
+            `).join('');
+
+            // Portal View Toggles
+            const parentView = document.getElementById('parentPortalView');
+            const kidsView = document.getElementById('kidsPortalView');
+            const portalText = document.getElementById('portalText');
+            const portalIcon = document.getElementById('portalIcon');
+
+            if (appData.isParentMode) {
+                parentView.classList.remove('hidden');
+                kidsView.classList.add('hidden');
+                portalText.innerText = "Switch to Kids View";
+                portalIcon.className = "fa-solid fa-user-shield";
+                renderParentPortal();
+            } else {
+                parentView.classList.add('hidden');
+                kidsView.classList.remove('hidden');
+                portalText.innerText = "Parent Portal";
+                portalIcon.className = "fa-solid fa-lock";
+                renderKidsPortal();
+            }
+        }
+
+        function selectChild(id) {
+            appData.activeChildId = id;
+            saveData();
+        }
+
+        // Render Kids View
+        function renderKidsPortal() {
+            const child = getActiveChild();
+            const todayName = getCurrentDayName();
+            const selectedDay = appData.selectedDay || todayName;
+            
+            // Financials
+            document.getElementById('kidsBankBalance').innerText = `£${child.balance.toFixed(2)}`;
+            document.getElementById('gusLevel').innerText = child.level || 1;
+
+            // Date Badge Updates
+            const now = new Date();
+            const fullDateStr = now.toLocaleDateString('en-GB', { weekday: 'long', month: 'short', day: 'numeric' });
+            document.getElementById('currentFullDate').innerText = fullDateStr;
+            
+            const dayBadge = document.getElementById('currentDayBadge');
+            if (selectedDay === todayName) {
+                dayBadge.innerText = `TODAY (${todayName.toUpperCase()})`;
+                dayBadge.className = "px-2.5 py-0.5 bg-indigo-600 text-white rounded-lg text-xs font-extrabold uppercase tracking-wider shadow-sm";
+            } else {
+                dayBadge.innerText = `${selectedDay.toUpperCase()}`;
+                dayBadge.className = "px-2.5 py-0.5 bg-amber-500 text-white rounded-lg text-xs font-extrabold uppercase tracking-wider shadow-sm";
+            }
+
+            // Wishlist
+            const wish = child.wishlist || { title: "Savings Goal", target: 20 };
+            const pct = Math.min(100, Math.round((child.balance / wish.target) * 100));
+            document.getElementById('kidsWishlistCard').innerHTML = `
+                <div class="flex justify-between items-center text-xs font-bold">
+                    <span><i class="fa-solid fa-gift text-amber-300"></i> ${wish.title}</span>
+                    <span>£${child.balance.toFixed(2)} / £${wish.target.toFixed(2)}</span>
+                </div>
+                <div class="w-full bg-black/20 rounded-full h-2.5 overflow-hidden">
+                    <div class="bg-amber-300 h-full transition-all duration-500" style="width: ${pct}%"></div>
+                </div>
+            `;
+
+            // Day Selector Tabs
+            const dayContainer = document.getElementById('dayFilterContainer');
+            dayContainer.innerHTML = DAYS_LIST.map(d => {
+                const isToday = d === todayName;
+                const isSelected = d === selectedDay;
+                return `
+                    <button onclick="setKidsSelectedDay('${d}')" class="px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 ${isSelected ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}">
+                        <span>${d}</span>
+                        ${isToday ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>' : ''}
+                    </button>
+                `;
+            }).join('');
+
+            // Calculate Gus Happiness for Today
+            const todayChores = child.chores.filter(c => c.days.includes(todayName));
+            const totalTodayChores = todayChores.length;
+            const completedTodayChores = todayChores.filter(c => {
+                ensureChoreStatusByDay(c);
+                const st = c.statusByDay[todayName];
+                return st === 'approved' || st === 'pending';
+            }).length;
+
+            const happinessPct = totalTodayChores === 0 ? 100 : Math.round((completedTodayChores / totalTodayChores) * 100);
+            updateGusMoodVisuals(happinessPct);
+
+            // Filter Chores for Selected Day
+            const activeDayChores = child.chores.filter(c => c.days.includes(selectedDay));
+            const kidsList = document.getElementById('kidsChoreList');
+
+            if (activeDayChores.length === 0) {
+                kidsList.innerHTML = `
+                    <div class="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                        <i class="fa-solid fa-mug-hot text-amber-400 text-3xl"></i>
+                        <h4 class="font-bold text-slate-700 text-sm">No tasks assigned for ${selectedDay}!</h4>
+                        <p class="text-xs text-slate-400">Enjoy your free time or relax with Gus!</p>
+                    </div>
+                `;
+            } else {
+                kidsList.innerHTML = activeDayChores.map(c => {
+                    ensureChoreStatusByDay(c);
+                    const status = c.statusByDay[selectedDay] || 'open';
+                    return `
+                        <div class="flex items-start justify-between p-4 rounded-2xl border transition-all ${status === 'approved' ? 'bg-emerald-50/60 border-emerald-200 text-slate-500' : status === 'pending' ? 'bg-amber-50/60 border-amber-200' : 'bg-white border-slate-200/80 shadow-sm hover:border-indigo-200'}">
+                            <div class="flex items-start gap-3">
+                                <button onclick="toggleChoreStatus('${c.id}', '${selectedDay}')" ${status === 'approved' ? 'disabled' : ''} class="mt-0.5 w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all ${status === 'approved' ? 'bg-emerald-500 text-white' : status === 'pending' ? 'bg-amber-400 text-white' : 'border-2 border-slate-300 hover:border-indigo-500 text-transparent'}">
+                                    <i class="fa-solid fa-check text-sm"></i>
+                                </button>
+                                <div>
+                                    <h4 class="font-bold text-sm ${status === 'approved' ? 'line-through text-slate-400' : 'text-slate-800'}">${c.title}</h4>
+                                    ${c.description ? `<p class="text-xs text-slate-500 mt-0.5 ${status === 'approved' ? 'line-through text-slate-300' : ''}">${c.description}</p>` : ''}
+                                    <div class="flex items-center gap-2 mt-1.5">
+                                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">${selectedDay} Chore</span>
+                                        ${c.frequency === 'weekly' ? '<span class="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">Weekly Goal</span>' : ''}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col items-end gap-1 shrink-0">
+                                <span class="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-xl text-xs">+£${c.reward.toFixed(2)}</span>
+                                ${status === 'pending' ? '<span class="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-800 rounded-lg">Awaiting Parent</span>' : status === 'approved' ? '<span class="text-[10px] font-bold px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-lg">Approved!</span>' : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        function setKidsSelectedDay(day) {
+            appData.selectedDay = day;
+            saveData();
+        }
+
+        // Gus Reactive Mood Logic
+        function updateGusMoodVisuals(pct) {
+            const svg = document.getElementById('gusSvg');
+            const label = document.getElementById('gusMoodLabel');
+            const speech = document.getElementById('gusSpeechBubble');
+            const tongue = document.getElementById('gusTongue');
+
+            if (pct >= 70) {
+                label.innerText = "Ecstatic & Happy!";
+                speech.innerText = '"Woof woof! You\'re doing an awesome job on chores!"';
+                svg.className = "w-full h-full gus-float gus-bounce";
+                tongue.setAttribute('d', 'M 97 97 Q 100 112 103 97 Z');
+            } else if (pct >= 40) {
+                label.innerText = "Doing Okay";
+                speech.innerText = '"Woof! Don\'t forget to finish your chores today!"';
+                svg.className = "w-full h-full gus-float";
+                tongue.setAttribute('d', 'M 97 97 Q 100 102 103 97 Z');
+            } else {
+                label.innerText = "Grumpy & Sad";
+                speech.innerText = '"Grrr... Gus needs attention! Please complete your chores!"';
+                svg.className = "w-full h-full gus-grumpy";
+                tongue.setAttribute('d', 'M 97 97 Q 100 98 103 97 Z');
+            }
+        }
+
+        function interactWithGus(action) {
+            AudioEngine.playBark();
+            const svg = document.getElementById('gusSvg');
+            svg.classList.add('gus-bounce');
+            setTimeout(() => svg.classList.remove('gus-bounce'), 1800);
+
+            if (action === 'treat') {
+                confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
+            }
+        }
+
+        function toggleChoreStatus(choreId, day) {
+            const child = getActiveChild();
+            const chore = child.chores.find(c => c.id === choreId);
+            if (chore) {
+                ensureChoreStatusByDay(chore);
+                if (chore.statusByDay[day] === 'open') {
+                    chore.statusByDay[day] = 'pending';
+                    AudioEngine.playCoin();
+                    saveData();
+                }
+            }
+        }
+
+        // Render Parent Portal
+        function renderParentPortal() {
+            const child = getActiveChild();
+
+            document.getElementById('parentActiveChildName').innerText = child.name;
+            document.getElementById('parentBankTotal').innerText = `£${child.balance.toFixed(2)}`;
+
+            // Calculate pending tasks across all children
+            let pendingTotal = 0;
+            const pendingList = [];
+
+            appData.children.forEach(c => {
+                c.chores.forEach(ch => {
+                    ensureChoreStatusByDay(ch);
+                    Object.keys(ch.statusByDay).forEach(day => {
+                        if (ch.statusByDay[day] === 'pending') {
+                            pendingTotal++;
+                            pendingList.push({ childName: c.name, childId: c.id, chore: ch, day: day });
+                        }
+                    });
+                });
+            });
+
+            document.getElementById('parentPendingCount').innerText = `${pendingTotal} Tasks`;
+            document.getElementById('pendingBadge').innerText = pendingTotal;
+
+            // Render Approvals Queue
+            const queue = document.getElementById('pendingApprovalQueue');
+
+            if (pendingList.length === 0) {
+                queue.innerHTML = `<div class="p-6 text-slate-400 text-sm text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">No chores pending review! All caught up.</div>`;
+            } else {
+                queue.innerHTML = pendingList.map(item => `
+                    <div class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-md">${item.childName}</span>
+                                <span class="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md">${item.day}</span>
+                            </div>
+                            <h4 class="font-bold text-slate-800 text-sm mt-1">${item.chore.title}</h4>
+                            ${item.chore.description ? `<p class="text-xs text-slate-500">${item.chore.description}</p>` : ''}
+                            <p class="text-xs text-emerald-600 font-bold mt-0.5">+£${item.chore.reward.toFixed(2)} Pocket Money</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="approveChore('${item.childId}', '${item.chore.id}', '${item.day}')" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm">
+                                Approve & Pay
+                            </button>
+                            <button onclick="rejectChore('${item.childId}', '${item.chore.id}', '${item.day}')" class="px-3.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl text-xs font-bold">
+                                Reject
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // Render Chore List in Parent Management Tab
+            const parentChoreList = document.getElementById('parentChoreList');
+            parentChoreList.innerHTML = child.chores.map(c => `
+                <div class="p-4 rounded-2xl border border-slate-200/80 bg-slate-50 flex items-start justify-between">
+                    <div>
+                        <h4 class="font-bold text-slate-800 text-sm">${c.title}</h4>
+                        ${c.description ? `<p class="text-xs text-slate-500 mb-1">${c.description}</p>` : ''}
+                        <div class="flex flex-wrap items-center gap-1.5 mt-1">
+                            <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">£${c.reward.toFixed(2)}</span>
+                            <span class="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md">${c.days.join(', ')}</span>
+                        </div>
+                    </div>
+                    <button onclick="deleteChore('${c.id}')" class="text-rose-400 hover:text-rose-600 text-sm p-1"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            `).join('');
+
+            // Render Ledger Audit Table
+            const ledgerBody = document.getElementById('parentLedgerBody');
+            ledgerBody.innerHTML = (child.ledger || []).map(l => `
+                <tr>
+                    <td class="py-2.5 text-slate-400 text-xs">${l.date}</td>
+                    <td class="py-2.5 font-bold text-slate-700">${l.desc}</td>
+                    <td class="py-2.5"><span class="px-2 py-0.5 text-[10px] font-bold rounded-md ${l.type === 'credit' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">${l.type.toUpperCase()}</span></td>
+                    <td class="py-2.5 text-right font-bold ${l.type === 'credit' ? 'text-emerald-600' : 'text-rose-600'}">${l.type === 'credit' ? '+' : ''}£${Math.abs(l.amount).toFixed(2)}</td>
+                </tr>
+            `).join('');
+
+            // Wishlist Goal Display in Parent Portal
+            const wish = child.wishlist || { title: "Toy", target: 20 };
+            document.getElementById('parentWishlistDisplay').innerHTML = `
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold text-slate-600">Goal Title</label>
+                    <input type="text" id="wishTitleInput" value="${wish.title}" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                    <label class="block text-xs font-bold text-slate-600">Target Amount (£)</label>
+                    <input type="number" id="wishTargetInput" value="${wish.target}" step="1" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                    <button onclick="saveWishlist()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs">Save Goal</button>
+                </div>
+            `;
+        }
+
+        // Parent Actions
+        function approveChore(childId, choreId, day) {
+            const child = appData.children.find(c => c.id === childId);
+            if (child) {
+                const chore = child.chores.find(c => c.id === choreId);
+                if (chore) {
+                    ensureChoreStatusByDay(chore);
+                    chore.statusByDay[day] = 'approved';
+                    child.balance += chore.reward;
+                    child.ledger.unshift({
+                        id: "l_" + Date.now(),
+                        date: new Date().toISOString().split('T')[0],
+                        desc: `${chore.title} (${day})`,
+                        amount: chore.reward,
+                        type: "credit"
+                    });
+                    AudioEngine.playCoin();
+                    saveData();
+                }
+            }
+        }
+
+        function rejectChore(childId, choreId, day) {
+            const child = appData.children.find(c => c.id === childId);
+            if (child) {
+                const chore = child.chores.find(c => c.id === choreId);
+                if (chore) {
+                    ensureChoreStatusByDay(chore);
+                    chore.statusByDay[day] = 'open';
+                    saveData();
+                }
+            }
+        }
+
+        function processBankTransaction(type) {
+            const child = getActiveChild();
+            const amountInput = document.getElementById('payoutAmountInput');
+            const noteInput = document.getElementById('payoutNoteInput');
+            const val = parseFloat(amountInput.value);
+
+            if (!val || val <= 0) {
+                alert("Please enter a valid amount!");
+                return;
+            }
+
+            const desc = noteInput.value.trim() || (type === 'payout' ? 'Physical cash payout' : 'Parent bonus');
+            const amount = type === 'payout' ? -val : val;
+
+            if (type === 'payout' && child.balance < val) {
+                if (!confirm("Payout amount exceeds current saved balance. Proceed anyway?")) return;
+            }
+
+            child.balance += amount;
+            child.ledger.unshift({
+                id: "l_" + Date.now(),
+                date: new Date().toISOString().split('T')[0],
+                desc: desc,
+                amount: amount,
+                type: type === 'payout' ? 'debit' : 'credit'
+            });
+
+            amountInput.value = '';
+            noteInput.value = '';
+            saveData();
+        }
+
+        function saveWishlist() {
+            const child = getActiveChild();
+            const title = document.getElementById('wishTitleInput').value;
+            const target = parseFloat(document.getElementById('wishTargetInput').value);
+            if (title && target) {
+                child.wishlist = { title, target };
+                saveData();
+            }
+        }
+
+        function switchParentTab(tabName) {
+            ['approvals', 'chores', 'bank', 'settings'].forEach(t => {
+                document.getElementById(`parentTab${t.charAt(0).toUpperCase() + t.slice(1)}`).classList.add('hidden');
+                document.getElementById(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`).className = "px-5 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap";
+            });
+
+            document.getElementById(`parentTab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).classList.remove('hidden');
+            document.getElementById(`tabBtn${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).className = "px-5 py-3 border-b-2 border-indigo-600 text-indigo-600 font-bold flex items-center gap-2 whitespace-nowrap";
+        }
+
+        // Modal Chore Functions
+        function openNewChoreModal() {
+            document.getElementById('choreModal').classList.remove('hidden');
+        }
+
+        function closeChoreModal() {
+            document.getElementById('choreModal').classList.add('hidden');
+        }
+
+        function saveChore(e) {
+            e.preventDefault();
+            const child = getActiveChild();
+            const title = document.getElementById('choreTitle').value;
+            const description = document.getElementById('choreDescription').value;
+            const reward = parseFloat(document.getElementById('choreReward').value);
+            const frequency = document.getElementById('choreFrequency').value;
+
+            const checkboxes = document.querySelectorAll('input[name="choreDays"]:checked');
+            const days = Array.from(checkboxes).map(cb => cb.value);
+
+            if (days.length === 0) {
+                alert("Please select at least one day for this chore!");
+                return;
+            }
+
+            const statusByDay = {};
+            days.forEach(d => { statusByDay[d] = 'open'; });
+
+            child.chores.push({
+                id: "ch_" + Date.now(),
+                title,
+                description,
+                reward,
+                frequency,
+                days,
+                statusByDay
+            });
+
+            document.getElementById('choreTitle').value = '';
+            document.getElementById('choreDescription').value = '';
+            closeChoreModal();
+            saveData();
+        }
+
+        function deleteChore(choreId) {
+            const child = getActiveChild();
+            child.chores = child.chores.filter(c => c.id !== choreId);
+            saveData();
+        }
+
+        function saveParentPin() {
+            const newPin = document.getElementById('parentPinSetting').value;
+            if (newPin && newPin.length === 4) {
+                appData.parentPin = newPin;
+                alert("PIN updated successfully!");
+                saveData();
+            } else {
+                alert("PIN must be 4 digits!");
+            }
+        }
+
+        // Initialize Application
+        window.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            renderState();
+        });
+    </script>
+</body>
+</html>
