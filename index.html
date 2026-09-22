@@ -2,21 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PetPal - Gus the Tibetan Terrier & Chore Tracker</title>
     <!-- Tailwind CSS -->
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <!-- Canvas Confetti -->
-    <script src="[https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js](https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js)"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <!-- FontAwesome Icons -->
-    <link href="[https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css](https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css)" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        @import url('[https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@500;600;700&display=swap)');
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@500;600;700&display=swap');
         
         body {
             font-family: 'Quicksand', sans-serif;
@@ -202,7 +197,7 @@
                     </div>
                     <div>
                         <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Gus Happiness Level</div>
-                        <div id="parentGusMoodText" class="text-2xl font-bold text-indigo-600">100% Happy</div>
+                        <div id="parentGusMoodText" class="text-2xl font-bold text-indigo-600">75% Happy</div>
                     </div>
                 </div>
             </div>
@@ -259,7 +254,7 @@
                         <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-hand-holding-dollar text-emerald-600"></i> Cash Payout & Allowance Adjustment
                         </h3>
-                        <p class="text-xs text-slate-500">Log physical cash paid out to your daughter or add custom bonus pocket money.</p>
+                        <p class="text-xs text-slate-500">Log physical cash paid out to your child or add custom bonus pocket money.</p>
                         
                         <div class="space-y-3 pt-2">
                             <div>
@@ -363,19 +358,19 @@
                         
                         <!-- Gus Mood Tag -->
                         <div id="gusMoodBadge" class="absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 flex items-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-heart"></i> <span id="gusMoodLabel">Feeling Great!</span>
+                            <i class="fa-solid fa-heart"></i> <span id="gusMoodLabel">Feeling Great! (75%)</span>
                         </div>
 
                         <!-- Level & XP Badge -->
                         <div class="absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 flex items-center gap-1 shadow-sm">
-                            <i class="fa-solid fa-star text-amber-500"></i> Lv. <span id="gusLevel">1</span>
+                            <i class="fa-solid fa-paw text-amber-500"></i> <span id="gusPoints">0</span> 🐾
                         </div>
 
                         <!-- Gus Animated Visual Canvas Container -->
                         <div id="gusAvatarContainer" class="w-56 h-56 my-4 cursor-pointer relative flex items-center justify-center transition-transform hover:scale-105" onclick="interactWithGus('pet')">
                             
                             <!-- Gus SVG (Tibetan Terrier with LEFT EYE PATCH) -->
-                            <svg id="gusSvg" class="w-full h-full gus-float" viewBox="0 0 200 200" xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)">
+                            <svg id="gusSvg" class="w-full h-full gus-float" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
                                 <defs>
                                     <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
                                         <feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity="0.15"/>
@@ -439,13 +434,13 @@
                         <!-- Action Buttons -->
                         <div class="grid grid-cols-3 gap-2 w-full mt-2">
                             <button onclick="interactWithGus('treat')" class="py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-2xl text-xs font-bold flex flex-col items-center gap-1 transition-all">
-                                <i class="fa-solid fa-cookie-bite text-base text-amber-600"></i> Treat Gus
+                                <i class="fa-solid fa-cookie-bite text-base text-amber-600"></i> Treat Gus (10 🐾)
                             </button>
                             <button onclick="interactWithGus('brush')" class="py-2.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-2xl text-xs font-bold flex flex-col items-center gap-1 transition-all">
-                                <i class="fa-solid fa-broom text-base text-sky-600"></i> Groom Fur
+                                <i class="fa-solid fa-broom text-base text-sky-600"></i> Groom Fur (15 🐾)
                             </button>
                             <button onclick="interactWithGus('play')" class="py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold flex flex-col items-center gap-1 transition-all">
-                                <i class="fa-solid fa-bone text-base text-emerald-600"></i> Play Fetch
+                                <i class="fa-solid fa-bone text-base text-emerald-600"></i> Play Fetch (20 🐾)
                             </button>
                         </div>
 
@@ -466,19 +461,6 @@
                         <!-- Wishlist Savings Bar -->
                         <div id="kidsWishlistCard" class="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 space-y-2">
                             <!-- Dynamically loaded wishlist goal -->
-                        </div>
-                    </div>
-
-                    <!-- NEW: Screen Time Bank Display -->
-                    <div class="bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-3xl p-6 shadow-md relative overflow-hidden space-y-2">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <span class="text-xs font-bold uppercase tracking-wider text-indigo-100">Bonus Screen Time</span>
-                                <div id="kidsScreenTimeBalance" class="text-3xl font-bold font-fun">0 mins</div>
-                            </div>
-                            <div class="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl text-indigo-200 shadow-inner">
-                                <i class="fa-solid fa-tv"></i>
-                            </div>
                         </div>
                     </div>
 
@@ -532,149 +514,412 @@
                     <input type="text" id="choreTitle" required placeholder="e.g. Feed Gus, Clean Bedroom, Do Homework" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
 
-                <!-- NEW: Dual Reward System Input Controls -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Task Details / Instructions (Optional)</label>
+                    <textarea id="choreDescription" rows="2" placeholder="e.g. Put clothes in laundry basket, make bed neatly, and dust desk." class="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-bold text-slate-600 mb-1">Money Reward (£)</label>
-                        <input type="number" id="choreReward" step="0.10" min="0" placeholder="0.50" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="number" id="choreReward" step="0.10" min="0" value="0.50" class="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-600 mb-1">Gus Points (🐾)</label>
-                        <input type="number" id="chorePoints" step="1" min="0" placeholder="10" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="number" id="chorePoints" step="5" min="0" value="10" class="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     </div>
                 </div>
 
-                <!-- NEW: Parent Screen Time Reward Input Control -->
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Screen Time Reward for Treating Gus (Mins)</label>
-                    <input type="number" id="screenTimeReward" step="5" min="0" placeholder="15" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-
-                <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                    <button type="button" onclick="closeChoreModal()" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold">Save Chore</button>
+                <div class="flex items-center justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeChoreModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md">Save Chore</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- NEW: Modular PetPal Extension System -->
+    <!-- Script Logic -->
     <script>
-        // NEW: Self-contained Extension Controller to handle Dual Rewards, Gus Economy, Mood Baseline, & Screen Time
-        (function() {
-            // Global state additions
-            window.gusPoints = parseInt(localStorage.getItem('gusPoints')) || 0;
-            window.screenTimeBank = parseInt(localStorage.getItem('screenTimeBank')) || 0;
-            window.gusMoodPercentage = parseInt(localStorage.getItem('gusMoodPercentage')) || 75; // Default cheerful baseline (70-80%)
-            window.screenTimeTreatReward = parseInt(localStorage.getItem('screenTimeTreatReward')) || 15;
+        // State
+        let isParentMode = false;
+        let activeChild = 'Emma';
+        let currentTab = 'approvals';
+        let currentSelectedDay = 'today';
 
-            // Save state helper
-            function saveExtensionState() {
-                localStorage.setItem('gusPoints', window.gusPoints);
-                localStorage.setItem('screenTimeBank', window.screenTimeBank);
-                localStorage.setItem('gusMoodPercentage', window.gusMoodPercentage);
-                localStorage.setItem('screenTimeTreatReward', window.screenTimeTreatReward);
-            }
-
-            // Sync baseline happiness on startup
-            function setMoodBaseline() {
-                if (window.gusMoodPercentage < 70) {
-                    window.gusMoodPercentage = 75;
-                    saveExtensionState();
-                }
-                updateMoodUI();
-            }
-
-            // UI Updater for Mood, Points, and Screen Time
-            function updateMoodUI() {
-                const parentMoodText = document.getElementById('parentGusMoodText');
-                const kidsScreenTime = document.getElementById('kidsScreenTimeBalance');
-                const gusMoodLabel = document.getElementById('gusMoodLabel');
-                const gusSvg = document.getElementById('gusSvg');
-
-                if (parentMoodText) {
-                    parentMoodText.textContent = `${window.gusMoodPercentage}% Happy`;
-                }
-
-                if (kidsScreenTime) {
-                    kidsScreenTime.textContent = `${window.screenTimeBank} mins`;
-                }
-
-                if (gusMoodLabel) {
-                    if (window.gusMoodPercentage >= 90) {
-                        gusMoodLabel.textContent = "Ecstatic! 🐾";
-                    } else if (window.gusMoodPercentage >= 70) {
-                        gusMoodLabel.textContent = "Feeling Great!";
-                    } else {
-                        gusMoodLabel.textContent = "Needs Attention";
-                    }
-                }
-
-                if (gusSvg) {
-                    if (window.gusMoodPercentage >= 90) {
-                        gusSvg.classList.add('gus-bounce');
-                    } else {
-                        gusSvg.classList.remove('gus-bounce');
-                    }
+        let appData = {
+            pin: '1234',
+            children: {
+                'Emma': {
+                    balance: 4.50,
+                    gusPoints: 25,
+                    gusMood: 75, // Baseline 70-80%
+                    wishlist: { item: 'LEGO Dog Park', target: 20.00 },
+                    chores: [
+                        { id: 1, title: 'Feed Gus', desc: 'Give Gus his morning bowl of dry food and fresh water.', reward: 0.50, points: 10, status: 'open' },
+                        { id: 2, title: 'Clean Bedroom', desc: 'Make bed and put away toys.', reward: 1.00, points: 15, status: 'pending' },
+                        { id: 3, title: 'Brush Gus', desc: 'Gently brush his white and black fur.', reward: 0.50, points: 10, status: 'approved' }
+                    ],
+                    history: [
+                        { date: '2026-09-22', desc: 'Brush Gus (Approved)', type: 'earned', amount: 0.50 }
+                    ]
                 }
             }
+        };
 
-            // Public Extension Methods
-            window.interactWithGus = function(actionType) {
-                let cost = 0;
-                let moodBoost = 0;
-                let actionName = "";
+        // Initialize App
+        window.addEventListener('DOMContentLoaded', () => {
+            renderChildSelector();
+            updatePortalUI();
+            setDates();
+        });
 
-                if (actionType === 'treat') {
-                    cost = 10;
-                    moodBoost = 15;
-                    actionName = "Treating Gus";
-                } else if (actionType === 'brush') {
-                    cost = 15;
-                    moodBoost = 20;
-                    actionName = "Grooming Gus";
-                } else if (actionType === 'play') {
-                    cost = 20;
-                    moodBoost = 25;
-                    actionName = "Playing Fetch";
-                }
+        function setDates() {
+            const today = new Date();
+            const options = { weekday: 'long', month: 'short', day: 'numeric' };
+            const dateStr = today.toLocaleDateString('en-GB', options);
+            const dateElem = document.getElementById('currentFullDate');
+            if(dateElem) dateElem.innerText = dateStr;
+        }
 
-                if (window.gusPoints < cost) {
-                    alert(`You need ${cost} Gus Points (🐾) for this action! Complete more chores to earn points.`);
-                    return;
-                }
-
-                // Deduct points
-                window.gusPoints -= cost;
-
-                // Adjust mood upwards (Cap at 100%)
-                window.gusMoodPercentage = Math.min(100, window.gusMoodPercentage + moodBoost);
-
-                // If treating, reward screen time
-                if (actionType === 'treat') {
-                    const screenTimeAward = window.screenTimeTreatReward || 15;
-                    window.screenTimeBank += screenTimeAward;
-                    alert(`Gus loved the treat! You earned +${screenTimeAward} minutes of bonus screen time!`);
-                }
-
-                // Trigger confetti if Ecstatic state reached
-                if (window.gusMoodPercentage >= 90 && typeof confetti === 'function') {
-                    confetti({
-                        particleCount: 80,
-                        spread: 60,
-                        origin: { y: 0.6 }
-                    });
-                }
-
-                saveExtensionState();
-                updateMoodUI();
-            };
-
-            // Initialize on load
-            window.addEventListener('DOMContentLoaded', () => {
-                setMoodBaseline();
+        function renderChildSelector() {
+            const container = document.getElementById('childSelectorContainer');
+            if(!container) return;
+            container.innerHTML = '';
+            
+            Object.keys(appData.children).forEach(name => {
+                const btn = document.createElement('button');
+                btn.className = `px-3 py-1 rounded-xl text-xs font-bold transition-all ${name === activeChild ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`;
+                btn.innerText = name;
+                btn.onclick = () => {
+                    activeChild = name;
+                    renderChildSelector();
+                    updatePortalUI();
+                };
+                container.appendChild(btn);
             });
-        })();
+        }
+
+        function handlePortalToggle() {
+            if (!isParentMode) {
+                const pin = prompt('Enter 4-digit Parent PIN:', '');
+                if (pin === appData.pin) {
+                    isParentMode = true;
+                    updatePortalUI();
+                } else if(pin !== null) {
+                    alert('Incorrect PIN!');
+                }
+            } else {
+                isParentMode = false;
+                updatePortalUI();
+            }
+        }
+
+        function updatePortalUI() {
+            const parentView = document.getElementById('parentPortalView');
+            const kidsView = document.getElementById('kidsPortalView');
+            const portalText = document.getElementById('portalText');
+            const portalIcon = document.getElementById('portalIcon');
+
+            const child = appData.children[activeChild];
+
+            if (isParentMode) {
+                parentView.classList.remove('hidden');
+                kidsView.classList.add('hidden');
+                portalText.innerText = 'Parent Portal';
+                portalIcon.className = 'fa-solid fa-user-shield';
+                
+                document.getElementById('parentActiveChildName').innerText = activeChild;
+                document.getElementById('resetChildName').innerText = activeChild;
+                
+                renderParentStats();
+                renderPendingApprovals();
+                renderParentChores();
+                renderParentLedger();
+                renderParentWishlist();
+            } else {
+                parentView.classList.add('hidden');
+                kidsView.classList.remove('hidden');
+                portalText.innerText = 'Kids View';
+                portalIcon.className = 'fa-solid fa-child';
+
+                renderKidsView();
+            }
+        }
+
+        /* --- KIDS PORTAL INTERACTION & ECONOMY --- */
+        function renderKidsView() {
+            const child = appData.children[activeChild];
+            
+            // Economy Displays
+            document.getElementById('kidsBankBalance').innerText = `£${child.balance.toFixed(2)}`;
+            document.getElementById('gusPoints').innerText = child.gusPoints;
+            
+            // Mood Display
+            const moodLabel = document.getElementById('gusMoodLabel');
+            document.getElementById('parentGusMoodText').innerText = `${child.gusMood}% Happy`;
+            if (child.gusMood >= 85) {
+                moodLabel.innerText = `Ecstatic! (${child.gusMood}%)`;
+            } else if (child.gusMood >= 60) {
+                moodLabel.innerText = `Feeling Great! (${child.gusMood}%)`;
+            } else {
+                moodLabel.innerText = `Grumpy (${child.gusMood}%)`;
+            }
+
+            // Wishlist
+            const wishCard = document.getElementById('kidsWishlistCard');
+            const pct = Math.min(100, Math.round((child.balance / child.wishlist.target) * 100));
+            wishCard.innerHTML = `
+                <div class="flex justify-between items-center text-xs font-bold mb-1">
+                    <span>Goal: ${child.wishlist.item}</span>
+                    <span>£${child.balance.toFixed(2)} / £${child.wishlist.target.toFixed(2)}</span>
+                </div>
+                <div class="w-full bg-black/20 rounded-full h-2 overflow-hidden">
+                    <div class="bg-amber-300 h-2 rounded-full" style="width: ${pct}%"></div>
+                </div>
+            `;
+
+            // Chore List
+            renderKidsChores();
+        }
+
+        function renderKidsChores() {
+            const container = document.getElementById('kidsChoreList');
+            container.innerHTML = '';
+            const child = appData.children[activeChild];
+
+            if (child.chores.length === 0) {
+                container.innerHTML = `<p class="text-slate-400 text-xs italic">No chores assigned yet!</p>`;
+                return;
+            }
+
+            child.chores.forEach(chore => {
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between p-3 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-100/50 transition-all";
+                
+                let actionBtn = '';
+                if (chore.status === 'open') {
+                    actionBtn = `<button onclick="completeChore(${chore.id})" class="px-3 py-1.5 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-all">Done</button>`;
+                } else if (chore.status === 'pending') {
+                    actionBtn = `<span class="px-2.5 py-1 bg-amber-100 text-amber-800 text-[11px] font-bold rounded-lg">Awaiting Parent</span>`;
+                } else if (chore.status === 'approved') {
+                    actionBtn = `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg"><i class="fa-solid fa-check"></i> Completed</span>`;
+                }
+
+                item.innerHTML = `
+                    <div class="space-y-0.5">
+                        <div class="font-bold text-sm text-slate-800">${chore.title}</div>
+                        <div class="text-xs text-slate-500">${chore.desc}</div>
+                        <div class="flex items-center gap-2 text-xs font-bold pt-1">
+                            ${chore.reward > 0 ? `<span class="text-emerald-600">£${chore.reward.toFixed(2)}</span>` : ''}
+                            ${chore.points > 0 ? `<span class="text-amber-600">${chore.points} 🐾</span>` : ''}
+                        </div>
+                    </div>
+                    <div>${actionBtn}</div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function completeChore(choreId) {
+            const child = appData.children[activeChild];
+            const chore = child.chores.find(c => c.id === choreId);
+            if (chore) {
+                chore.status = 'pending';
+                updatePortalUI();
+            }
+        }
+
+        function interactWithGus(action) {
+            const child = appData.children[activeChild];
+            let cost = 0;
+            let boost = 0;
+            let text = "";
+
+            if (action === 'treat') { cost = 10; boost = 10; text = "Yum! Gus loved that delicious treat!"; }
+            else if (action === 'brush') { cost = 15; boost = 15; text = "Gus's shaggy fur looks so shiny and clean!"; }
+            else if (action === 'play') { cost = 20; boost = 25; text = "Fetch! Gus is bouncing around with joy!"; }
+            else { boost = 5; text = "Gus wags his tail cheerfully!"; }
+
+            if (cost > 0 && child.gusPoints < cost) {
+                alert(`You need ${cost} Gus Points (🐾) for this action! Complete more chores to earn points.`);
+                return;
+            }
+
+            child.gusPoints -= cost;
+            child.gusMood = Math.min(100, child.gusMood + boost);
+
+            // Speech & Animation Trigger
+            const speech = document.getElementById('gusSpeechBubble');
+            if(speech) speech.innerText = `"${text}"`;
+
+            const avatar = document.getElementById('gusSvg');
+            if(avatar) {
+                avatar.classList.add('gus-bounce');
+                setTimeout(() => avatar.classList.remove('gus-bounce'), 1800);
+            }
+
+            if (child.gusMood >= 85 && typeof confetti === 'function') {
+                confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+            }
+
+            updatePortalUI();
+        }
+
+        /* --- PARENT PORTAL CONTROLS --- */
+        function renderParentStats() {
+            const child = appData.children[activeChild];
+            const pending = child.chores.filter(c => c.status === 'pending').length;
+            
+            document.getElementById('parentPendingCount').innerText = `${pending} Tasks`;
+            document.getElementById('pendingBadge').innerText = pending;
+            document.getElementById('parentBankTotal').innerText = `£${child.balance.toFixed(2)}`;
+            document.getElementById('parentGusMoodText').innerText = `${child.gusMood}% Happy`;
+        }
+
+        function renderPendingApprovals() {
+            const container = document.getElementById('pendingApprovalQueue');
+            container.innerHTML = '';
+            const child = appData.children[activeChild];
+            const pendingTasks = child.chores.filter(c => c.status === 'pending');
+
+            if (pendingTasks.length === 0) {
+                container.innerHTML = `<p class="text-slate-400 text-xs italic">No pending task approvals.</p>`;
+                return;
+            }
+
+            pendingTasks.forEach(chore => {
+                const card = document.createElement('div');
+                card.className = "flex items-center justify-between p-3 border border-slate-100 rounded-2xl bg-amber-50/50";
+                card.innerHTML = `
+                    <div>
+                        <div class="font-bold text-sm text-slate-800">${chore.title}</div>
+                        <div class="text-xs text-slate-500">Reward: £${chore.reward.toFixed(2)} | ${chore.points} 🐾</div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="approveChore(${chore.id})" class="px-3 py-1.5 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700">Approve</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function approveChore(choreId) {
+            const child = appData.children[activeChild];
+            const chore = child.chores.find(c => c.id === choreId);
+            if (chore) {
+                chore.status = 'approved';
+                child.balance += chore.reward;
+                child.gusPoints += chore.points;
+                child.history.unshift({
+                    date: new Date().toISOString().split('T')[0],
+                    desc: `${chore.title} (Approved)`,
+                    type: 'earned',
+                    amount: chore.reward
+                });
+                updatePortalUI();
+            }
+        }
+
+        function renderParentChores() {
+            const container = document.getElementById('parentChoreList');
+            container.innerHTML = '';
+            const child = appData.children[activeChild];
+
+            child.chores.forEach(chore => {
+                const card = document.createElement('div');
+                card.className = "p-4 border border-slate-200/80 rounded-2xl space-y-2 bg-slate-50/50";
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <span class="font-bold text-slate-800">${chore.title}</span>
+                        <span class="text-xs font-bold text-indigo-600">£${chore.reward.toFixed(2)} / ${chore.points} 🐾</span>
+                    </div>
+                    <p class="text-xs text-slate-500">${chore.desc}</p>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderParentLedger() {
+            const container = document.getElementById('parentLedgerBody');
+            container.innerHTML = '';
+            const child = appData.children[activeChild];
+
+            child.history.forEach(tx => {
+                const row = document.createElement('tr');
+                row.className = "border-b border-slate-50";
+                row.innerHTML = `
+                    <td class="py-2.5 text-xs text-slate-500">${tx.date}</td>
+                    <td class="py-2.5 font-bold text-slate-700">${tx.desc}</td>
+                    <td class="py-2.5 text-xs uppercase font-bold ${tx.type === 'earned' ? 'text-emerald-600' : 'text-rose-600'}">${tx.type}</td>
+                    <td class="py-2.5 text-right font-bold">${tx.type === 'earned' ? '+' : '-'}£${tx.amount.toFixed(2)}</td>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function renderParentWishlist() {
+            const child = appData.children[activeChild];
+            const container = document.getElementById('parentWishlistDisplay');
+            container.innerHTML = `
+                <div class="text-sm font-bold text-slate-700">Target Goal: ${child.wishlist.item} (£${child.wishlist.target.toFixed(2)})</div>
+                <div class="text-xs text-slate-500">Progress: £${child.balance.toFixed(2)} saved</div>
+            `;
+        }
+
+        function switchParentTab(tab) {
+            ['approvals', 'chores', 'bank', 'settings'].forEach(t => {
+                const el = document.getElementById(`parentTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+                if(el) el.classList.add('hidden');
+            });
+            document.getElementById(`parentTab${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.remove('hidden');
+        }
+
+        function openNewChoreModal() { document.getElementById('choreModal').classList.remove('hidden'); }
+        function closeChoreModal() { document.getElementById('choreModal').classList.add('hidden'); }
+
+        function saveChore(e) {
+            e.preventDefault();
+            const title = document.getElementById('choreTitle').value;
+            const desc = document.getElementById('choreDescription').value;
+            const reward = parseFloat(document.getElementById('choreReward').value) || 0;
+            const points = parseInt(document.getElementById('chorePoints').value) || 0;
+
+            const child = appData.children[activeChild];
+            child.chores.push({
+                id: Date.now(),
+                title, desc, reward, points, status: 'open'
+            });
+
+            closeChoreModal();
+            updatePortalUI();
+        }
+
+        function processBankTransaction(type) {
+            const amt = parseFloat(document.getElementById('payoutAmountInput').value);
+            const note = document.getElementById('payoutNoteInput').value || (type === 'payout' ? 'Cash payout' : 'Bonus reward');
+            if(!amt || amt <= 0) return;
+
+            const child = appData.children[activeChild];
+            if(type === 'payout') child.balance = Math.max(0, child.balance - amt);
+            else child.balance += amt;
+
+            child.history.unshift({
+                date: new Date().toISOString().split('T')[0],
+                desc: note,
+                type: type === 'payout' ? 'spent' : 'earned',
+                amount: amt
+            });
+
+            document.getElementById('payoutAmountInput').value = '';
+            document.getElementById('payoutNoteInput').value = '';
+            updatePortalUI();
+        }
+
+        function confirmResetChildTasks() {
+            const child = appData.children[activeChild];
+            child.chores.forEach(c => c.status = 'open');
+            updatePortalUI();
+        }
     </script>
 </body>
 </html>
