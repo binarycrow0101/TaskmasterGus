@@ -1661,9 +1661,10 @@
         return y + '-' + m + '-' + day;
     }
 
-    // NEW: Calculate today's scheduled chores and completion percentage.
-    function newGetTodayGusChoreProgress(child) {
-        var today = getCurrentDayAbbrev();
+    // NEW: Calculate scheduled chores and completion percentage for the supplied approval day.
+    function newGetTodayGusChoreProgress(child, requestedDay) {
+        // NEW: Use the day supplied by the existing approval workflow when available.
+        var today = requestedDay || getCurrentDayAbbrev();
         var scheduled = (child && Array.isArray(child.chores)) ? child.chores.filter(function(chore) {
             return Array.isArray(chore.days) && chore.days.includes(today);
         }) : [];
@@ -1690,11 +1691,26 @@
     }
 
     // NEW: Daily star awards are incremental, so moving from 70% to 90% awards only the extra star.
-    function newAwardDailyGusStars(child) {
-        if (!child) return { added: 0, progress: newGetTodayGusChoreProgress(child) };
+    // NEW: The optional requestedDay comes directly from the existing approveChore(childId, choreId, day) call.
+    function newAwardDailyGusStars(child, requestedDay) {
+        if (!child) return { added: 0, progress: newGetTodayGusChoreProgress(child, requestedDay) };
 
-        var progress = newGetTodayGusChoreProgress(child);
+        // NEW: Calculate the approved weekday rather than always using today's weekday.
+        var progress = newGetTodayGusChoreProgress(child, requestedDay);
         var dateKey = newGusDateKey();
+        // NEW: When approval is for another weekday, use the most recent calendar date matching that weekday.
+        if (requestedDay && requestedDay !== getCurrentDayAbbrev()) {
+            var weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+            if (Object.prototype.hasOwnProperty.call(weekdayMap, requestedDay)) {
+                var target = weekdayMap[requestedDay];
+                var d = new Date();
+                var diff = (d.getDay() - target + 7) % 7;
+                if (diff === 0) diff = 7;
+                d.setDate(d.getDate() - diff);
+                dateKey = newGusDateKey(d);
+            }
+        }
+        dateKey = dateKey + ':' + String(child.id || 'child');
         var history = {};
 
         try {
@@ -1850,7 +1866,7 @@
         try {
             var child = appData.children.find(function(c) { return c.id === childId; });
             if (child) {
-                newAwardDailyGusStars(child);
+                newAwardDailyGusStars(child, day);
                 newCheckGusRewardThresholds();
                 saveData();
             }
@@ -2153,6 +2169,510 @@
             return result;
         };
     }
+})();
+</script>
+
+
+<!-- NEW: ISOLATED WEEKLY RESET, HARD RESET, AND CHORE UNAPPROVAL CONTROLS -->
+<script>
+(function() {
+    // NEW: Keep all reset/unapproval state isolated from the existing PetPal data model.
+    var NEW_WEEK_STATE_KEY = 'petpalCurrentWeekKey';
+    var NEW_GUS_STAR_BANK_KEY = 'gusStarBank';
+    var NEW_GUS_STAR_HISTORY_KEY = 'gusStarDailyHistory';
+    var NEW_GUS_REWARD_STAGE_KEY = 'gusRewardStage';
+
+    // NEW: Return a stable key for the Monday that starts the current local week.
+    function newGetWeekKey(date) {
+        var d = new Date(date || new Date());
+        var day = d.getDay();
+        var diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // NEW: Clear the weekly earned balances while preserving chore definitions and the Gus reward pool.
+    function newClearWeeklyBalancesAndTasks() {
+        if (!appData || !Array.isArray(appData.children)) return;
+
+        appData.children.forEach(function(child) {
+            child.balance = 0;
+            child.gusPoints = 0;
+            child.screenTimeBank = 0;
+
+            if (Array.isArray(child.chores)) {
+                child.chores.forEach(function(chore) {
+                    chore.statusByDay = {};
+                });
+            }
+        });
+
+        // NEW: Stars are a weekly earned balance; the reward definitions themselves remain persistent.
+        try { localStorage.setItem(NEW_GUS_STAR_BANK_KEY, '0'); } catch (e) {}
+        try { localStorage.setItem(NEW_GUS_STAR_HISTORY_KEY, '{}'); } catch (e) {}
+        try { localStorage.setItem(NEW_GUS_REWARD_STAGE_KEY, '0'); } catch (e) {}
+
+        saveData();
+    }
+
+    // NEW: Automatically start a clean earning week the first time the app is opened in a new week.
+    function newEnsureCurrentWeek() {
+        var currentWeek = newGetWeekKey();
+        var previousWeek = null;
+        try { previousWeek = localStorage.getItem(NEW_WEEK_STATE_KEY); } catch (e) {}
+
+        if (!previousWeek) {
+            try { localStorage.setItem(NEW_WEEK_STATE_KEY, currentWeek); } catch (e) {}
+            return false;
+        }
+
+        if (previousWeek !== currentWeek) {
+            newClearWeeklyBalancesAndTasks();
+            try { localStorage.setItem(NEW_WEEK_STATE_KEY, currentWeek); } catch (e) {}
+            return true;
+        }
+
+        return false;
+    }
+
+    // NEW: Hard reset requested from the existing "Reset All Tasks to Open" button.
+    function newHardResetPetPalWeek() {
+        var confirmed = confirm('Hard reset the current week? This will reopen every chore and clear all pocket money, Gus Points, screen time, and Gus stars for every child. Your Gus reward pool will be kept.');
+        if (!confirmed) return;
+
+        newClearWeeklyBalancesAndTasks();
+        try { localStorage.setItem(NEW_WEEK_STATE_KEY, newGetWeekKey()); } catch (e) {}
+
+        if (typeof renderApp === 'function') renderApp();
+        alert('Clean slate complete. All weekly chores are open and all earned balances and stars are cleared.');
+    }
+
+    // NEW: Reverse one approved chore without changing the existing approveChore implementation.
+    function newUnapproveChore(childId, choreId, day) {
+        var child = appData.children.find(function(c) { return c.id === childId; });
+        if (!child) return;
+        var chore = child.chores.find(function(c) { return c.id === choreId; });
+        if (!chore) return;
+
+        ensureChoreStatusByDay(chore);
+        if (chore.statusByDay[day] !== 'completed') return;
+
+        var money = Number(chore.reward) || 0;
+        var points = Number.isFinite(Number(chore.gusPointsReward)) ? Number(chore.gusPointsReward) : 10;
+        var minutes = Number.isFinite(Number(chore.screenTimeReward)) ? Number(chore.screenTimeReward) : 15;
+
+        var confirmed = confirm('Unapprove "' + chore.title + '" for ' + day + '? The reward paid for this approval will be removed from the child\'s current balances.');
+        if (!confirmed) return;
+
+        // NEW: Remove only the reward generated by this approved task, never allowing balances below zero.
+        child.balance = Math.max(0, (child.balance || 0) - money);
+        child.gusPoints = Math.max(0, (child.gusPoints || 0) - points);
+        child.screenTimeBank = Math.max(0, (child.screenTimeBank || 0) - minutes);
+        chore.statusByDay[day] = 'open';
+
+        // NEW: Recalculate that day's unspent Gus stars after the chore is returned to Open.
+        try {
+            var weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+            var target = weekdayMap[day];
+            var date = new Date();
+            if (Object.prototype.hasOwnProperty.call(weekdayMap, day)) {
+                var diff = (date.getDay() - target + 7) % 7;
+                if (diff === 0) diff = 7;
+                date.setDate(date.getDate() - diff);
+            }
+            var dateKey = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+            var history = {};
+            try { history = JSON.parse(localStorage.getItem(NEW_GUS_STAR_HISTORY_KEY) || '{}') || {}; } catch (e) { history = {}; }
+            var historyKey = dateKey + ':' + String(child.id || 'child');
+            var previousStars = parseInt(history[historyKey] || '0', 10);
+            if (!Number.isFinite(previousStars) || previousStars < 0) previousStars = 0;
+
+            var scheduled = child.chores.filter(function(c) {
+                return Array.isArray(c.days) && c.days.includes(day);
+            });
+            var completed = scheduled.filter(function(c) {
+                ensureChoreStatusByDay(c);
+                return c.statusByDay[day] === 'completed';
+            }).length;
+            var percent = scheduled.length ? Math.round((completed / scheduled.length) * 100) : 0;
+            var newStars = scheduled.length && percent >= 90 ? 2 : (scheduled.length && percent >= 70 ? 1 : 0);
+            var starsToRemove = Math.max(0, previousStars - newStars);
+
+            if (starsToRemove > 0) {
+                var currentBank = parseInt(localStorage.getItem(NEW_GUS_STAR_BANK_KEY) || '0', 10);
+                if (!Number.isFinite(currentBank) || currentBank < 0) currentBank = 0;
+                localStorage.setItem(NEW_GUS_STAR_BANK_KEY, String(Math.max(0, currentBank - starsToRemove)));
+            }
+            history[historyKey] = newStars;
+            localStorage.setItem(NEW_GUS_STAR_HISTORY_KEY, JSON.stringify(history));
+        } catch (e) {
+            console.warn('Could not reverse Gus stars for unapproved chore.', e);
+        }
+
+        saveData();
+        if (typeof renderApp === 'function') renderApp();
+    }
+
+    // NEW: Expose the new action so the generated parent controls can call it safely.
+    window.newUnapproveChore = newUnapproveChore;
+
+    // NEW: Add one small unapproval control for every currently approved day of each chore.
+    function newAddUnapproveControls() {
+        if (!appData || !appData.isParentMode) return;
+        var list = document.getElementById('parentChoreList');
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        if (!list || !child || !Array.isArray(child.chores)) return;
+
+        var cards = Array.prototype.slice.call(list.children);
+        child.chores.forEach(function(chore, index) {
+            var card = cards[index];
+            if (!card) return;
+            ensureChoreStatusByDay(chore);
+
+            var completedDays = Object.keys(chore.statusByDay).filter(function(day) {
+                return chore.statusByDay[day] === 'completed';
+            });
+            if (!completedDays.length) return;
+
+            var controls = document.createElement('div');
+            controls.className = 'mt-2 flex flex-wrap gap-1.5 items-center';
+
+            var label = document.createElement('span');
+            label.className = 'text-[10px] font-bold text-slate-500 mr-1';
+            label.textContent = 'Approved:';
+            controls.appendChild(label);
+
+            completedDays.forEach(function(day) {
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'text-[10px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-1 rounded-md';
+                button.textContent = day + ' · Unapprove';
+                button.onclick = function() { newUnapproveChore(child.id, chore.id, day); };
+                controls.appendChild(button);
+            });
+
+            var details = card.firstElementChild;
+            if (details) details.appendChild(controls);
+        });
+    }
+
+    // NEW: Make the existing reset button perform the complete hard reset without editing its source HTML.
+    function newWireHardResetButton() {
+        var button = document.getElementById('btnResetHistory');
+        if (!button) return;
+        button.onclick = newHardResetPetPalWeek;
+        button.title = 'Hard reset the current week';
+    }
+
+    // NEW: Wrap the existing renderer only to enforce weekly rollover and add the new unapproval controls.
+    var newOriginalRenderApp = window.renderApp;
+    if (typeof newOriginalRenderApp === 'function') {
+        window.renderApp = function() {
+            newEnsureCurrentWeek();
+            var result = newOriginalRenderApp.apply(this, arguments);
+            newWireHardResetButton();
+            newAddUnapproveControls();
+            return result;
+        };
+    }
+
+    // NEW: Ensure the weekly check and controls are also active after DOM initialization.
+    document.addEventListener('DOMContentLoaded', function() {
+        newEnsureCurrentWeek();
+        newWireHardResetButton();
+        newAddUnapproveControls();
+    });
+})();
+</script>
+
+
+<!-- NEW: ISOLATED WEEKLY FAMILY EMAIL REPORT -->
+<script>
+(function() {
+    // NEW: This module does not alter any existing PetPal functions or styling.
+    var NEW_WEEKLY_REPORT_RECIPIENTS_KEY = 'petpalWeeklyReportRecipients';
+    var NEW_WEEKLY_REPORT_SENT_KEY = 'petpalWeeklyReportSentWeek';
+    var NEW_WEEKLY_REPORT_LAST_KEY = 'petpalLastWeeklyReport';
+    var NEW_WEEKLY_REWARD_HISTORY_KEY = 'gusRewardHistory';
+
+    // NEW: Keep this module independent of the earlier weekly-reset closure.
+    function newWeeklyGetWeekKey(date) {
+        var d = new Date(date || new Date());
+        var day = d.getDay();
+        var diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // NEW: Convert a YYYY-MM-DD key to a local Date at midnight.
+    function newReportDateFromKey(key) {
+        var parts = String(key || '').split('-').map(Number);
+        if (parts.length !== 3 || parts.some(function(n) { return !Number.isFinite(n); })) return null;
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    // NEW: Return the seven dates belonging to a Monday-starting week.
+    function newReportWeekDates(weekKey) {
+        var start = newReportDateFromKey(weekKey);
+        if (!start) return [];
+        var dates = [];
+        for (var i = 0; i < 7; i++) {
+            var d = new Date(start);
+            d.setDate(start.getDate() + i);
+            dates.push(d);
+        }
+        return dates;
+    }
+
+    // NEW: Return a compact day name matching PetPal's existing statusByDay keys.
+    function newReportDayName(date) {
+        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+    }
+
+    // NEW: Escape characters that could make a report hard to read in plain-text email.
+    function newReportClean(value) {
+        return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ').trim();
+    }
+
+    // NEW: Calculate completed chores and earned values directly from the previous week's saved chore statuses.
+    function newBuildWeeklyReport(previousWeekKey) {
+        var weekDates = newReportWeekDates(previousWeekKey);
+        var validDays = {};
+        weekDates.forEach(function(date) { validDays[newReportDayName(date)] = true; });
+
+        var report = {
+            week: previousWeekKey,
+            children: [],
+            gusRewards: [],
+            totals: { money: 0, gusPoints: 0, screenTime: 0, chores: 0 }
+        };
+
+        if (appData && Array.isArray(appData.children)) {
+            appData.children.forEach(function(child) {
+                var childReport = {
+                    id: child.id,
+                    name: child.name,
+                    chores: [],
+                    money: 0,
+                    gusPoints: 0,
+                    screenTime: 0
+                };
+
+                (child.chores || []).forEach(function(chore) {
+                    if (!chore || !chore.statusByDay) return;
+                    Object.keys(chore.statusByDay).forEach(function(day) {
+                        if (!validDays[day] || chore.statusByDay[day] !== 'completed') return;
+
+                        var money = Number(chore.reward) || 0;
+                        var points = Number.isFinite(Number(chore.gusPointsReward)) ? Number(chore.gusPointsReward) : 10;
+                        var minutes = Number.isFinite(Number(chore.screenTimeReward)) ? Number(chore.screenTimeReward) : 15;
+
+                        childReport.chores.push({
+                            day: day,
+                            title: newReportClean(chore.title),
+                            money: money,
+                            gusPoints: points,
+                            screenTime: minutes
+                        });
+                        childReport.money += money;
+                        childReport.gusPoints += points;
+                        childReport.screenTime += minutes;
+                        report.totals.money += money;
+                        report.totals.gusPoints += points;
+                        report.totals.screenTime += minutes;
+                        report.totals.chores += 1;
+                    });
+                });
+
+                report.children.push(childReport);
+            });
+        }
+
+        // NEW: Gus reward history predates child attribution, so only rewards explicitly attributed to a child are assigned to that child.
+        var rewardHistory = [];
+        try { rewardHistory = JSON.parse(localStorage.getItem(NEW_WEEKLY_REWARD_HISTORY_KEY) || '[]') || []; } catch (e) { rewardHistory = []; }
+        var weekStart = newReportDateFromKey(previousWeekKey);
+        var currentWeek = newWeeklyGetWeekKey(new Date());
+        var weekEnd = newReportDateFromKey(currentWeek) || new Date();
+        weekEnd.setMilliseconds(-1);
+
+        rewardHistory.forEach(function(item) {
+            var date = newReportDateFromKey(item && item.date);
+            if (!date || !weekStart || date < weekStart || date >= newReportDateFromKey(currentWeek)) return;
+            report.gusRewards.push({
+                childId: item.childId || null,
+                childName: item.childName || null,
+                tier: newReportClean(item.tier),
+                reward: newReportClean(item.reward),
+                starsSpent: Number(item.starsSpent) || 0
+            });
+        });
+
+        return report;
+    }
+
+    // NEW: Format the report with pocket money first, then Gus rewards, then the full chore breakdown.
+    function newFormatWeeklyReport(report) {
+        var lines = [];
+        lines.push('PETPAL WEEKLY FAMILY REPORT');
+        lines.push('Week starting ' + report.week);
+        lines.push('');
+        lines.push('1. POCKET MONEY EARNED');
+        lines.push('Total earned: £' + report.totals.money.toFixed(2));
+        report.children.forEach(function(child) {
+            lines.push('  ' + newReportClean(child.name) + ': £' + child.money.toFixed(2));
+        });
+        lines.push('');
+        lines.push('2. GUS REWARDS WON');
+        if (!report.gusRewards.length) {
+            lines.push('  No Gus rewards were won this week.');
+        } else {
+            report.gusRewards.forEach(function(reward) {
+                var who = reward.childName ? ' (' + newReportClean(reward.childName) + ')' : '';
+                lines.push('  ' + reward.tier + ': ' + reward.reward + who + ' — ' + reward.starsSpent + ' stars');
+            });
+        }
+        lines.push('');
+        lines.push('3. OTHER EARNINGS');
+        report.children.forEach(function(child) {
+            lines.push('  ' + newReportClean(child.name) + ': ' + child.gusPoints + ' Gus Points, ' + child.screenTime + ' minutes Screen Time');
+        });
+        lines.push('');
+        lines.push('4. CHORES COMPLETED');
+        if (!report.totals.chores) {
+            lines.push('  No chores were approved as completed this week.');
+        } else {
+            report.children.forEach(function(child) {
+                lines.push('  ' + newReportClean(child.name) + ':');
+                if (!child.chores.length) {
+                    lines.push('    No completed chores.');
+                } else {
+                    child.chores.forEach(function(chore) {
+                        lines.push('    - ' + chore.day + ': ' + chore.title + ' | £' + chore.money.toFixed(2) + ' | ' + chore.gusPoints + ' Gus Points | ' + chore.screenTime + 'm Screen Time');
+                    });
+                }
+            });
+        }
+        lines.push('');
+        lines.push('Summary: ' + report.totals.chores + ' chores completed, £' + report.totals.money.toFixed(2) + ' earned, ' + report.totals.gusPoints + ' Gus Points earned, ' + report.totals.screenTime + ' minutes of Screen Time earned.');
+        return lines.join('\n');
+    }
+
+    // NEW: Get or ask for the people who should receive the weekly report.
+    function newGetWeeklyReportRecipients() {
+        var saved = '';
+        try { saved = localStorage.getItem(NEW_WEEKLY_REPORT_RECIPIENTS_KEY) || ''; } catch (e) {}
+        if (saved.trim()) return saved.split(',').map(function(x) { return x.trim(); }).filter(Boolean);
+
+        var answer = prompt('Enter the email address(es) for the PetPal weekly report, separated by commas. You can change this later by clearing the saved setting in your browser.');
+        if (!answer || !answer.trim()) return [];
+        var recipients = answer.split(',').map(function(x) { return x.trim(); }).filter(Boolean);
+        try { localStorage.setItem(NEW_WEEKLY_REPORT_RECIPIENTS_KEY, recipients.join(',')); } catch (e) {}
+        return recipients;
+    }
+
+    // NEW: Open a pre-addressed weekly report in the device's default email application.
+    // NEW: A normal browser page cannot silently send email without an external email service; mailto keeps this self-contained and requires the parent to press Send.
+    function newSendWeeklyReportEmail(report) {
+        var recipients = newGetWeeklyReportRecipients();
+        if (!recipients.length) return false;
+
+        var subject = 'PetPal Weekly Report — Week starting ' + report.week;
+        var body = newFormatWeeklyReport(report);
+        var mailto = 'mailto:' + recipients.join(',')
+            + '?subject=' + encodeURIComponent(subject)
+            + '&body=' + encodeURIComponent(body);
+
+        try {
+            localStorage.setItem(NEW_WEEKLY_REPORT_LAST_KEY, JSON.stringify(report));
+            window.location.href = mailto;
+            return true;
+        } catch (e) {
+            console.warn('Could not open the weekly report email.', e);
+            return false;
+        }
+    }
+
+    // NEW: Attribute newly-created Gus rewards to the child whose approval triggered them.
+    var newWeeklyOriginalApprove = window.approveChore;
+    if (typeof newWeeklyOriginalApprove === 'function') {
+        window.approveChore = function(childId, choreId, day) {
+            var beforeLength = 0;
+            try {
+                var before = JSON.parse(localStorage.getItem(NEW_WEEKLY_REWARD_HISTORY_KEY) || '[]') || [];
+                beforeLength = before.length;
+            } catch (e) {}
+
+            var result = newWeeklyOriginalApprove.apply(this, arguments);
+
+            try {
+                var history = JSON.parse(localStorage.getItem(NEW_WEEKLY_REWARD_HISTORY_KEY) || '[]') || [];
+                if (history.length > beforeLength) {
+                    var child = appData.children.find(function(c) { return c.id === childId; });
+                    var last = history[history.length - 1];
+                    if (child && last && !last.childId) {
+                        last.childId = child.id;
+                        last.childName = child.name;
+                        localStorage.setItem(NEW_WEEKLY_REWARD_HISTORY_KEY, JSON.stringify(history.slice(-50)));
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not attribute Gus reward to child for weekly report.', e);
+            }
+            return result;
+        };
+    }
+
+    // NEW: Run before the existing weekly rollover wrapper so the previous week's data is reported before it is cleared.
+    var newWeeklyReportOriginalRenderApp = window.renderApp;
+    if (typeof newWeeklyReportOriginalRenderApp === 'function') {
+        window.renderApp = function() {
+            var currentWeek = newWeeklyGetWeekKey();
+            var previousWeek = null;
+            var shouldReport = false;
+            try { previousWeek = localStorage.getItem('petpalCurrentWeekKey'); } catch (e) {}
+            if (previousWeek && currentWeek && previousWeek !== currentWeek) {
+                var alreadySent = null;
+                try { alreadySent = localStorage.getItem(NEW_WEEKLY_REPORT_SENT_KEY); } catch (e) {}
+                if (alreadySent !== previousWeek) {
+                    shouldReport = true;
+                    try { localStorage.setItem(NEW_WEEKLY_REPORT_SENT_KEY, previousWeek); } catch (e) {}
+                }
+            }
+
+            var report = null;
+            if (shouldReport) {
+                try {
+                    // NEW: Build the previous week's report BEFORE the existing rollover can clear its data.
+                    report = newBuildWeeklyReport(previousWeek);
+                } catch (e) {
+                    console.warn('PetPal weekly report could not be built before rollover.', e);
+                }
+            }
+
+            var result = newWeeklyReportOriginalRenderApp.apply(this, arguments);
+
+            if (report) {
+                try {
+                    newSendWeeklyReportEmail(report);
+                } catch (e) {
+                    console.warn('PetPal weekly email report failed.', e);
+                }
+            }
+            return result;
+        };
+    }
+
+    // NEW: Also make the report helper available for testing/manual use without changing the existing UI.
+    window.petpalGenerateWeeklyReport = function(weekKey) {
+        return newBuildWeeklyReport(weekKey || newWeeklyGetWeekKey(new Date()));
+    };
+
+    // NEW: Allow parents to replace the saved recipient list without changing the page UI.
+    window.petpalSetWeeklyReportRecipients = function() {
+        try { localStorage.removeItem(NEW_WEEKLY_REPORT_RECIPIENTS_KEY); } catch (e) {}
+        return newGetWeeklyReportRecipients();
+    };
 })();
 </script>
 
