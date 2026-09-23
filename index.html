@@ -3114,6 +3114,64 @@
 </script>
 
 </body>
+
+
+<!-- NEW: ISOLATED APPROVAL SAFETY PATCH -->
+<script>
+(function() {
+    // NEW: Keep the existing approval chain intact while adding a final safety net.
+    // NEW: This catches errors thrown by any earlier wrapper and ensures the parent UI refreshes.
+    var newApprovalChainBeforeSafetyPatch = window.approveChore;
+
+    if (typeof newApprovalChainBeforeSafetyPatch === 'function') {
+        window.approveChore = function(childId, choreId, day) {
+            // NEW: Capture the state before approval so the fallback cannot double-credit a successful approval.
+            var childBefore = appData.children.find(function(c) { return c.id === childId; });
+            var choreBefore = childBefore && Array.isArray(childBefore.chores)
+                ? childBefore.chores.find(function(c) { return c.id === choreId; })
+                : null;
+            var wasAlreadyCompleted = !!(choreBefore && choreBefore.statusByDay && choreBefore.statusByDay[day] === 'completed');
+            var result;
+
+            try {
+                // NEW: Run every existing approval wrapper and the original approval logic first.
+                result = newApprovalChainBeforeSafetyPatch.apply(this, arguments);
+            } catch (error) {
+                // NEW: Keep the existing app usable if a later extension wrapper throws.
+                console.error('PetPal approval chain error; safety recovery applied.', error);
+            }
+
+            try {
+                var childAfter = appData.children.find(function(c) { return c.id === childId; });
+                var choreAfter = childAfter && Array.isArray(childAfter.chores)
+                    ? childAfter.chores.find(function(c) { return c.id === choreId; })
+                    : null;
+                var isCompleted = !!(choreAfter && choreAfter.statusByDay && choreAfter.statusByDay[day] === 'completed');
+
+                // NEW: If the existing chain did not complete the chore, perform only the missing core approval step.
+                if (!wasAlreadyCompleted && !isCompleted && childAfter && choreAfter) {
+                    ensureChoreStatusByDay(choreAfter);
+                    choreAfter.statusByDay[day] = 'completed';
+                    childAfter.balance = (Number(childAfter.balance) || 0) + (Number(choreAfter.reward) || 0);
+                    childAfter.gusPoints = (Number(childAfter.gusPoints) || 0) + (Number(choreAfter.gusPointsReward) || 0);
+                    childAfter.screenTimeBank = (Number(childAfter.screenTimeBank) || 0) + (Number(choreAfter.screenTimeReward) || 0);
+                    saveData();
+                }
+
+                // NEW: Always refresh the parent approval queue after the click.
+                if (appData.isParentMode && typeof renderParentPortal === 'function') {
+                    renderParentPortal();
+                }
+            } catch (recoveryError) {
+                // NEW: Do not allow a rendering/recovery error to break the approval click itself.
+                console.error('PetPal approval recovery error.', recoveryError);
+            }
+
+            return result;
+        };
+    }
+})();
+</script>
 </html>
 
 <!-- NEW: ISOLATED MONTHLY GUS-STAR LIFECYCLE -->
