@@ -2676,5 +2676,129 @@
 })();
 </script>
 
+
+<!-- NEW: ISOLATED FEATURE - Copy chores between child profiles -->
+<script>
+(function() {
+    // NEW: Create a clean copy of one chore for another child profile.
+    // NEW: Completion history is intentionally NOT copied, so the new child starts with an open chore.
+    function newCopyChoreToChild(choreId) {
+        var sourceChild = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        if (!sourceChild || !Array.isArray(sourceChild.chores)) return;
+
+        var sourceChore = sourceChild.chores.find(function(chore) {
+            return chore.id === choreId;
+        });
+        if (!sourceChore || !Array.isArray(appData.children)) return;
+
+        var targets = appData.children.filter(function(child) {
+            return child.id !== sourceChild.id;
+        });
+
+        if (!targets.length) {
+            alert('There is no other child profile to copy this chore to yet.');
+            return;
+        }
+
+        // NEW: Use a simple numbered prompt so no existing layout or styling needs to change.
+        var choices = targets.map(function(child, index) {
+            return (index + 1) + '. ' + child.name;
+        }).join('\n');
+
+        var answer = prompt(
+            'Copy "' + sourceChore.title + '" to which child?\n\n' + choices + '\n\nEnter the number:'
+        );
+        if (answer === null) return;
+
+        var targetIndex = parseInt(answer, 10) - 1;
+        if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= targets.length) {
+            alert('Please enter one of the numbers shown.');
+            return;
+        }
+
+        var targetChild = targets[targetIndex];
+        if (!Array.isArray(targetChild.chores)) targetChild.chores = [];
+
+        // NEW: Prevent an accidental exact duplicate on the target profile.
+        var duplicate = targetChild.chores.some(function(chore) {
+            return String(chore.title || '').trim().toLowerCase() === String(sourceChore.title || '').trim().toLowerCase()
+                && Number(chore.reward || 0) === Number(sourceChore.reward || 0)
+                && Number(chore.gusPointsReward || 0) === Number(sourceChore.gusPointsReward || 0)
+                && Number(chore.screenTimeReward || 0) === Number(sourceChore.screenTimeReward || 0);
+        });
+
+        if (duplicate) {
+            var proceed = confirm(
+                targetChild.name + ' already has a chore with the same title and rewards.\n\nCopy it anyway?'
+            );
+            if (!proceed) return;
+        }
+
+        // NEW: Copy only the chore definition. Never copy completion/pending/approved history.
+        var copiedChore = {
+            id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            title: sourceChore.title || '',
+            description: sourceChore.description || '',
+            reward: Math.max(0, Number(sourceChore.reward) || 0),
+            gusPointsReward: Math.max(0, Number(sourceChore.gusPointsReward) || 0),
+            screenTimeReward: Math.max(0, Number(sourceChore.screenTimeReward) || 0),
+            frequency: sourceChore.frequency || 'daily',
+            days: Array.isArray(sourceChore.days) ? sourceChore.days.slice() : DAYS_OF_WEEK.slice(),
+            statusByDay: {}
+        };
+
+        targetChild.chores.push(copiedChore);
+        saveData();
+        renderParentPortal();
+
+        alert('Copied "' + copiedChore.title + '" from ' + sourceChild.name + ' to ' + targetChild.name + '.');
+    }
+
+    // NEW: Add a Copy button beside each existing chore's Delete button without replacing
+    // or refactoring the original chore renderer.
+    function newAddCopyChoreControls() {
+        if (!appData || !appData.isParentMode) return;
+
+        var list = document.getElementById('parentChoreList');
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        if (!list || !child || !Array.isArray(child.chores)) return;
+
+        var cards = Array.prototype.slice.call(list.children);
+        child.chores.forEach(function(chore, index) {
+            var card = cards[index];
+            if (!card || card.dataset.newCopyControlAdded === '1') return;
+
+            var deleteButton = card.querySelector('button[onclick*="deleteChore"]');
+            if (!deleteButton || !deleteButton.parentElement) return;
+
+            var copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.title = 'Copy this chore to another child';
+            copyButton.className = 'text-indigo-400 hover:text-indigo-600 text-sm p-1';
+            copyButton.innerHTML = '<i class="fa-solid fa-copy"></i>';
+            copyButton.onclick = function() {
+                newCopyChoreToChild(chore.id);
+            };
+
+            deleteButton.parentElement.insertBefore(copyButton, deleteButton);
+            card.dataset.newCopyControlAdded = '1';
+        });
+    }
+
+    // NEW: Hook into the existing parent renderer without modifying it.
+    var newCopyOriginalRenderParentPortal = window.renderParentPortal;
+    if (typeof newCopyOriginalRenderParentPortal === 'function') {
+        window.renderParentPortal = function() {
+            var result = newCopyOriginalRenderParentPortal.apply(this, arguments);
+            newAddCopyChoreControls();
+            return result;
+        };
+    }
+
+    // NEW: Public helper for optional future buttons or testing.
+    window.petpalCopyChoreToChild = newCopyChoreToChild;
+})();
+</script>
+
 </body>
 </html>
