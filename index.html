@@ -3172,6 +3172,78 @@
     }
 })();
 </script>
+
+
+<!-- NEW: ISOLATED GUS POINT VALUE SYNC PATCH -->
+<script>
+(function() {
+    // NEW: Existing chore cards use 10 as the visual fallback when gusPointsReward is missing.
+    // NEW: This module makes that fallback real data, so the displayed value and awarded value match.
+    var NEW_GUS_POINTS_FALLBACK = 10;
+
+    // NEW: Ensure every existing chore has a usable Gus Points value without changing explicit values,
+    // NEW: including an intentional value of 0.
+    function newNormalizeGusPointValues() {
+        var changed = false;
+        try {
+            if (!appData || !Array.isArray(appData.children)) return false;
+
+            appData.children.forEach(function(child) {
+                if (!child || !Array.isArray(child.chores)) return;
+                child.chores.forEach(function(chore) {
+                    if (!chore) return;
+                    var value = Number(chore.gusPointsReward);
+                    if (!Number.isFinite(value) || value < 0) {
+                        chore.gusPointsReward = NEW_GUS_POINTS_FALLBACK;
+                        changed = true;
+                    }
+                });
+            });
+
+            if (changed && typeof saveData === 'function') saveData();
+        } catch (e) {
+            // NEW: Keep this compatibility layer from interfering with the existing app.
+            console.error('PetPal Gus Point value sync error.', e);
+        }
+        return changed;
+    }
+
+    // NEW: Normalize legacy/missing Gus Point values before the existing approval chain runs.
+    if (typeof window.approveChore === 'function') {
+        var newGusPointApproveChain = window.approveChore;
+        window.approveChore = function() {
+            newNormalizeGusPointValues();
+            return newGusPointApproveChain.apply(this, arguments);
+        };
+    }
+
+    // NEW: Normalize before existing parent rendering so displayed Gus Points always come from the chore data.
+    if (typeof window.renderParentPortal === 'function') {
+        var newGusPointParentRender = window.renderParentPortal;
+        window.renderParentPortal = function() {
+            newNormalizeGusPointValues();
+            return newGusPointParentRender.apply(this, arguments);
+        };
+    }
+
+    // NEW: Normalize before existing kids rendering for the same display/data consistency.
+    if (typeof window.renderKidsPortal === 'function') {
+        var newGusPointKidsRender = window.renderKidsPortal;
+        window.renderKidsPortal = function() {
+            newNormalizeGusPointValues();
+            return newGusPointKidsRender.apply(this, arguments);
+        };
+    }
+
+    // NEW: Run once after the existing app has initialized, so old chores are repaired immediately.
+    document.addEventListener('DOMContentLoaded', function() {
+        newNormalizeGusPointValues();
+    });
+
+    // NEW: Public test helper showing the normalized stored Gus Point value for a chore.
+    window.petpalNormalizeGusPointValues = newNormalizeGusPointValues;
+})();
+</script>
 </html>
 
 <!-- NEW: ISOLATED MONTHLY GUS-STAR LIFECYCLE -->
