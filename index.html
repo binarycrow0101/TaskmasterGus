@@ -4059,3 +4059,376 @@
     window.petpalUnlockChoreDay = newUnlockSpecificChoreDay;
 })();
 </script>
+
+
+<script>
+// NEW: ISOLATED CHORE BACKUP / RESTORE SYSTEM
+// NEW: Exports only chore definitions for existing child profiles and imports them back
+// NEW: without creating profiles or overwriting chore completion history.
+(function() {
+    'use strict';
+
+    // NEW: Stable format identifier/version so future PetPal versions can validate backups.
+    var NEW_CHORE_BACKUP_FORMAT = 'PetPal Chore List Backup';
+    var NEW_CHORE_BACKUP_VERSION = 1;
+
+    // NEW: Returns the chore fields that are intentionally editable/backed up.
+    // NEW: statusByDay is deliberately excluded because it is completion history, not the chore definition.
+    function newGetExportableChore(chore) {
+        return {
+            id: typeof chore.id === 'string' ? chore.id : '',
+            title: typeof chore.title === 'string' ? chore.title : '',
+            description: typeof chore.description === 'string' ? chore.description : '',
+            reward: Number.isFinite(Number(chore.reward)) ? Number(chore.reward) : 0,
+            gusPointsReward: Number.isFinite(Number(chore.gusPointsReward)) ? Number(chore.gusPointsReward) : 0,
+            screenTimeReward: Number.isFinite(Number(chore.screenTimeReward)) ? Number(chore.screenTimeReward) : 0,
+            frequency: typeof chore.frequency === 'string' ? chore.frequency : 'daily',
+            days: Array.isArray(chore.days) ? chore.days.slice() : [],
+            parentUnlockedDays: Array.isArray(chore.parentUnlockedDays) ? chore.parentUnlockedDays.slice() : []
+        };
+    }
+
+    // NEW: Creates a fresh chore id when an edited backup contains a new chore without an id.
+    function newCreateImportedChoreId(existingIds) {
+        var id;
+        do {
+            id = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        } while (existingIds[id]);
+        existingIds[id] = true;
+        return id;
+    }
+
+    // NEW: Normalizes one imported chore without changing the existing chore-editing functions.
+    function newNormalizeImportedChore(rawChore, existingIds) {
+        if (!rawChore || typeof rawChore !== 'object') return null;
+
+        var title = typeof rawChore.title === 'string' ? rawChore.title.trim() : '';
+        if (!title) return null;
+
+        var suppliedId = typeof rawChore.id === 'string' ? rawChore.id.trim() : '';
+        var id = suppliedId && !existingIds[suppliedId]
+            ? suppliedId
+            : newCreateImportedChoreId(existingIds);
+
+        var reward = Number(rawChore.reward);
+        var gusPointsReward = Number(rawChore.gusPointsReward);
+        var screenTimeReward = Number(rawChore.screenTimeReward);
+
+        var days = Array.isArray(rawChore.days)
+            ? rawChore.days.filter(function(day) {
+                return typeof day === 'string' && typeof DAYS_OF_WEEK !== 'undefined' && DAYS_OF_WEEK.indexOf(day) !== -1;
+            })
+            : [];
+
+        var parentUnlockedDays = Array.isArray(rawChore.parentUnlockedDays)
+            ? rawChore.parentUnlockedDays.filter(function(day) {
+                return typeof day === 'string' && typeof DAYS_OF_WEEK !== 'undefined' && DAYS_OF_WEEK.indexOf(day) !== -1;
+            })
+            : [];
+
+        existingIds[id] = true;
+
+        return {
+            id: id,
+            title: title,
+            description: typeof rawChore.description === 'string' ? rawChore.description : '',
+            reward: Number.isFinite(reward) ? reward : 0,
+            gusPointsReward: Number.isFinite(gusPointsReward) ? gusPointsReward : 0,
+            screenTimeReward: Number.isFinite(screenTimeReward) ? screenTimeReward : 0,
+            frequency: typeof rawChore.frequency === 'string' && rawChore.frequency ? rawChore.frequency : 'daily',
+            days: days,
+            parentUnlockedDays: parentUnlockedDays
+        };
+    }
+
+    // NEW: Exports every existing profile's chore definitions to a portable JSON file.
+    function newExportChoreBackup() {
+        // NEW: Read the existing PetPal app data directly from its established localStorage key.
+        var currentData;
+        try {
+            var storedData = localStorage.getItem('petpal_app_data');
+            currentData = storedData ? JSON.parse(storedData) : null;
+        } catch (error) {
+            currentData = null;
+        }
+
+        if (!currentData || !Array.isArray(currentData.children)) {
+            alert('PetPal data could not be found on this device.');
+            return;
+        }
+
+        var backup = {
+            app: 'PetPal',
+            dataType: 'choreLists',
+            format: NEW_CHORE_BACKUP_FORMAT,
+            formatVersion: NEW_CHORE_BACKUP_VERSION,
+            exportedAt: new Date().toISOString(),
+            children: currentData.children.map(function(child) {
+                return {
+                    childId: child.id,
+                    childName: child.name,
+                    chores: Array.isArray(child.chores)
+                        ? child.chores.map(newGetExportableChore)
+                        : []
+                };
+            })
+        };
+
+        var json = JSON.stringify(backup, null, 2);
+        var blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        var datePart = new Date().toISOString().slice(0, 10);
+
+        link.href = url;
+        link.download = 'PetPal_Chore_Backup_' + datePart + '.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+
+        alert('Chore backup exported for ' + currentData.children.length + ' profile' + (currentData.children.length === 1 ? '.' : 's.') + '\n\nThe JSON file contains chore definitions only.');
+    }
+
+    // NEW: Finds an existing profile by original id first, then by an unambiguous name match.
+    function newFindExistingChild(importedChild, currentData) {
+        if (!importedChild || !currentData || !Array.isArray(currentData.children)) return null;
+
+        if (importedChild.childId !== undefined && importedChild.childId !== null) {
+            var byId = currentData.children.find(function(child) {
+                return String(child.id) === String(importedChild.childId);
+            });
+            if (byId) return byId;
+        }
+
+        var importedName = typeof importedChild.childName === 'string'
+            ? importedChild.childName.trim().toLowerCase()
+            : '';
+        if (!importedName) return null;
+
+        var matches = currentData.children.filter(function(child) {
+            return typeof child.name === 'string' && child.name.trim().toLowerCase() === importedName;
+        });
+
+        return matches.length === 1 ? matches[0] : null;
+    }
+
+    // NEW: Imports chore definitions while preserving existing completion history for matching chore ids.
+    function newImportChoreBackup(file) {
+        if (!file) return;
+
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            var backup;
+            var currentData;
+
+            // NEW: Read the current app data from the same localStorage record used by the existing app.
+            try {
+                var storedData = localStorage.getItem('petpal_app_data');
+                currentData = storedData ? JSON.parse(storedData) : null;
+            } catch (error) {
+                currentData = null;
+            }
+
+            if (!currentData || !Array.isArray(currentData.children)) {
+                alert('PetPal data could not be found on this device. No changes were made.');
+                return;
+            }
+
+            try {
+                backup = JSON.parse(event.target.result);
+            } catch (error) {
+                alert('That file is not valid JSON. No changes were made.');
+                return;
+            }
+
+            if (!backup || backup.app !== 'PetPal' || backup.dataType !== 'choreLists' ||
+                backup.format !== NEW_CHORE_BACKUP_FORMAT || backup.formatVersion !== NEW_CHORE_BACKUP_VERSION ||
+                !Array.isArray(backup.children)) {
+                alert('This is not a valid PetPal chore backup. No changes were made.');
+                return;
+            }
+
+            var matched = [];
+            var skipped = [];
+            var invalidChores = 0;
+
+            backup.children.forEach(function(importedChild) {
+                var existingChild = newFindExistingChild(importedChild, currentData);
+
+                if (!existingChild) {
+                    skipped.push(importedChild && importedChild.childName ? importedChild.childName : 'Unknown profile');
+                    return;
+                }
+
+                if (!Array.isArray(importedChild.chores)) {
+                    invalidChores++;
+                    return;
+                }
+
+                matched.push({ importedChild: importedChild, existingChild: existingChild });
+            });
+
+            if (matched.length === 0) {
+                alert('No existing profiles matched this backup. No changes were made.');
+                return;
+            }
+
+            var summary = matched.map(function(item) {
+                return item.existingChild.name + ': ' + item.importedChild.chores.length + ' chores';
+            }).join('\n');
+
+            var warning = skipped.length
+                ? '\n\nSkipped profiles not found on this device: ' + skipped.join(', ')
+                : '';
+
+            var confirmed = confirm(
+                'Import these chore lists?\n\n' +
+                summary + warning + '\n\n' +
+                'Only chore lists will be changed. Profiles, balances, Gus Points, stars, rewards and completion history will not be replaced.'
+            );
+
+            if (!confirmed) return;
+
+            var importedCount = 0;
+
+            matched.forEach(function(item) {
+                var existingChild = item.existingChild;
+                var importedChores = item.importedChild.chores;
+                var oldChoresById = {};
+                var existingIds = {};
+
+                (Array.isArray(existingChild.chores) ? existingChild.chores : []).forEach(function(existingChore) {
+                    if (existingChore && existingChore.id) {
+                        oldChoresById[String(existingChore.id)] = existingChore;
+                        existingIds[String(existingChore.id)] = true;
+                    }
+                });
+
+                var importedIds = {};
+                var newChores = [];
+
+                importedChores.forEach(function(rawChore) {
+                    if (!rawChore || typeof rawChore !== 'object') {
+                        invalidChores++;
+                        return;
+                    }
+
+                    var suppliedId = typeof rawChore.id === 'string' ? rawChore.id.trim() : '';
+                    var matchingOldChore = suppliedId ? oldChoresById[suppliedId] : null;
+                    var normalized;
+
+                    // NEW: Keep the original id when it belongs to an existing chore so its completion history survives.
+                    if (matchingOldChore && !importedIds[suppliedId]) {
+                        var tempIds = {};
+                        normalized = newNormalizeImportedChore(rawChore, tempIds);
+                        if (normalized) {
+                            normalized.id = suppliedId;
+                            normalized.statusByDay = matchingOldChore.statusByDay || {};
+                            importedIds[suppliedId] = true;
+                        }
+                    } else {
+                        normalized = newNormalizeImportedChore(rawChore, existingIds);
+                        if (normalized) {
+                            normalized.statusByDay = {};
+                            importedIds[normalized.id] = true;
+                        }
+                    }
+
+                    if (normalized) {
+                        newChores.push(normalized);
+                        importedCount++;
+                    } else {
+                        invalidChores++;
+                    }
+                });
+
+                existingChild.chores = newChores;
+            });
+
+            // NEW: Commit only the modified chore lists back to the app's established data store.
+            try {
+                localStorage.setItem('petpal_app_data', JSON.stringify(currentData));
+            } catch (error) {
+                alert('The imported chore lists could not be saved. No changes were made.');
+                return;
+            }
+
+            // NEW: Refresh the existing in-memory app data using its original loader, without changing it.
+            if (typeof loadData === 'function') loadData();
+            if (typeof renderApp === 'function') renderApp();
+
+            var resultMessage = 'Chore import complete.\n\nImported ' + importedCount + ' chore' + (importedCount === 1 ? '' : 's') + '.';
+            if (skipped.length) resultMessage += '\nSkipped profiles: ' + skipped.join(', ') + '.';
+            if (invalidChores) resultMessage += '\nSkipped invalid chore entries: ' + invalidChores + '.';
+            alert(resultMessage);
+        };
+
+        reader.onerror = function() {
+            alert('The chore backup could not be read. No changes were made.');
+        };
+
+        reader.readAsText(file);
+    }
+
+    // NEW: Opens the device/iPad file picker without adding a permanent visible input to the app.
+    function newOpenChoreBackupPicker() {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.style.display = 'none';
+        input.addEventListener('change', function() {
+            if (input.files && input.files[0]) newImportChoreBackup(input.files[0]);
+            input.remove();
+        });
+        document.body.appendChild(input);
+        input.click();
+    }
+
+    // NEW: Adds a self-contained Chore Backup card to the existing Parent Settings tab.
+    function newAddChoreBackupPanel() {
+        var settingsTab = document.getElementById('parentTabSettings');
+        if (!settingsTab || document.getElementById('newChoreBackupPanel')) return;
+
+        var panel = document.createElement('div');
+        panel.id = 'newChoreBackupPanel';
+        panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+        panel.innerHTML =
+            '<div class="flex items-center justify-between gap-3">' +
+                '<div>' +
+                    '<h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">' +
+                        '<i class="fa-solid fa-file-export text-indigo-600"></i> Chore Backup' +
+                    '</h3>' +
+                    '<p class="text-xs text-slate-500 mt-1">Export or restore chore lists for all existing profiles.</p>' +
+                '</div>' +
+                '<div class="flex items-center gap-2 shrink-0">' +
+                    '<button type="button" id="newChoreExportButton" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm">' +
+                        '<i class="fa-solid fa-download mr-1"></i> Export' +
+                    '</button>' +
+                    '<button type="button" id="newChoreImportButton" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-200">' +
+                        '<i class="fa-solid fa-upload mr-1"></i> Import' +
+                    '</button>' +
+                '</div>' +
+            '</div>';
+
+        settingsTab.appendChild(panel);
+
+        document.getElementById('newChoreExportButton').addEventListener('click', newExportChoreBackup);
+        document.getElementById('newChoreImportButton').addEventListener('click', newOpenChoreBackupPicker);
+    }
+
+    // NEW: Re-add the backup panel whenever the existing Parent Portal is rendered.
+    var newChoreBackupPreviousRenderParent = window.renderParentPortal;
+    if (typeof newChoreBackupPreviousRenderParent === 'function') {
+        window.renderParentPortal = function() {
+            var result = newChoreBackupPreviousRenderParent.apply(this, arguments);
+            newAddChoreBackupPanel();
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for optional future parent controls/testing.
+    window.petpalExportChoreBackup = newExportChoreBackup;
+    window.petpalImportChoreBackup = newImportChoreBackup;
+})();
+</script>
