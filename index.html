@@ -3922,3 +3922,140 @@
 })();
 </script>
 
+
+
+<!-- NEW: ISOLATED DAILY CHORE LOCK SYSTEM -->
+<script>
+(function() {
+    // NEW: Chores are normally claimable only on today's calendar day.
+    // NEW: A parent can unlock an individual chore/day with the existing Parent PIN.
+    var NEW_CHORE_UNLOCK_FIELD = 'parentUnlockedDays';
+
+    // NEW: Return today's day abbreviation using the app's existing day helper when available.
+    function newGetTodayForChoreLock() {
+        if (typeof getCurrentDayAbbrev === 'function') return getCurrentDayAbbrev();
+        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+    }
+
+    // NEW: Store unlocks on the individual chore so they survive re-renders and reloads.
+    function newEnsureChoreUnlocks(chore) {
+        if (!chore) return [];
+        if (!Array.isArray(chore[NEW_CHORE_UNLOCK_FIELD])) chore[NEW_CHORE_UNLOCK_FIELD] = [];
+        return chore[NEW_CHORE_UNLOCK_FIELD];
+    }
+
+    // NEW: Only today's chores are automatically available. Explicit parent unlocks override the lock.
+    function newIsChoreDayUnlocked(chore, day) {
+        if (!chore || !day) return false;
+        if (day === newGetTodayForChoreLock()) return true;
+        return newEnsureChoreUnlocks(chore).indexOf(day) !== -1;
+    }
+
+    // NEW: Ask for the existing Parent PIN and unlock only this chore for the selected day.
+    function newUnlockSpecificChoreDay(choreId, day) {
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        if (!child || !Array.isArray(child.chores)) return;
+
+        var chore = child.chores.find(function(item) { return item.id === choreId; });
+        if (!chore || !day || day === newGetTodayForChoreLock()) return;
+
+        var enteredPin = window.prompt('Parent verification required. Enter the 4-digit Parent PIN to unlock this chore for ' + day + '.');
+        if (enteredPin === null) return;
+
+        if (String(enteredPin) !== String(appData.parentPin)) {
+            alert('Incorrect Parent PIN.');
+            return;
+        }
+
+        var unlocks = newEnsureChoreUnlocks(chore);
+        if (unlocks.indexOf(day) === -1) unlocks.push(day);
+        saveData();
+        renderKidsPortal();
+    }
+
+    // NEW: Add the requested small padlock control to locked chore cards without changing the existing card layout.
+    function newAddChoreLockControls() {
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var choreList = document.getElementById('kidsChoreList');
+        if (!child || !choreList || !Array.isArray(child.chores)) return;
+
+        var selectedDay = typeof currentKidsDayFilter !== 'undefined' ? currentKidsDayFilter : newGetTodayForChoreLock();
+        var dayChores = child.chores.filter(function(chore) {
+            return chore.days && chore.days.includes(selectedDay);
+        });
+
+        var cards = Array.prototype.slice.call(choreList.children);
+        if (cards.length !== dayChores.length) return;
+
+        cards.forEach(function(card, index) {
+            var chore = dayChores[index];
+            if (!chore) return;
+
+            var existingLock = card.querySelector('[data-new-chore-lock="1"]');
+            if (existingLock) existingLock.remove();
+
+            var doneButton = card.querySelector('button[onclick*="completeChoreByKid"]');
+            var unlocked = newIsChoreDayUnlocked(chore, selectedDay);
+
+            if (!unlocked && doneButton) {
+                // NEW: Grey out the existing Done button and make it non-interactive while locked.
+                doneButton.disabled = true;
+                doneButton.classList.add('opacity-50', 'cursor-not-allowed');
+                doneButton.setAttribute('title', 'Locked until today, or until a parent unlocks this chore.');
+
+                // NEW: Add a compact padlock button for parent-only unlocking.
+                var lockButton = document.createElement('button');
+                lockButton.type = 'button';
+                lockButton.dataset.newChoreLock = '1';
+                lockButton.title = 'Parent unlock required';
+                lockButton.className = 'ml-1 px-2 py-1 text-slate-400 hover:text-indigo-600 text-xs rounded-lg';
+                lockButton.innerHTML = '<i class="fa-solid fa-lock"></i>';
+                lockButton.addEventListener('click', function() {
+                    newUnlockSpecificChoreDay(chore.id, selectedDay);
+                });
+
+                if (doneButton.parentElement) {
+                    doneButton.parentElement.insertBefore(lockButton, doneButton);
+                }
+            } else if (doneButton) {
+                // NEW: Restore the existing Done button if a parent has unlocked this specific day.
+                doneButton.disabled = false;
+                doneButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                doneButton.removeAttribute('title');
+            }
+        });
+    }
+
+    // NEW: Guard the actual completion function as well as the visual button.
+    // NEW: This prevents accidental/programmatic claims on a locked day.
+    var newDailyLockPreviousComplete = window.completeChoreByKid;
+    if (typeof newDailyLockPreviousComplete === 'function') {
+        window.completeChoreByKid = function(choreId, day) {
+            var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+            var chore = child && Array.isArray(child.chores)
+                ? child.chores.find(function(item) { return item.id === choreId; })
+                : null;
+
+            if (!newIsChoreDayUnlocked(chore, day)) {
+                alert('This chore is locked for ' + day + '. A parent can unlock it with the Parent PIN.');
+                return;
+            }
+
+            return newDailyLockPreviousComplete.apply(this, arguments);
+        };
+    }
+
+    // NEW: Re-apply the lock state after every existing kids-portal render.
+    var newDailyLockPreviousRender = window.renderKidsPortal;
+    if (typeof newDailyLockPreviousRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newDailyLockPreviousRender.apply(this, arguments);
+            newAddChoreLockControls();
+            return result;
+        };
+    }
+
+    // NEW: Public helper for optional future parent controls/testing.
+    window.petpalUnlockChoreDay = newUnlockSpecificChoreDay;
+})();
+</script>
