@@ -3809,3 +3809,116 @@
     window.petpalGetGusDailyStarCount = newGetDailyTargetStarCount;
 })();
 </script>
+
+<!-- NEW: ISOLATED KIDS CHORE VALUE FILTERS -->
+<script>
+(function() {
+    // NEW: Track the selected kids chore priority without changing existing app state.
+    var newKidsChoreSortMode = 'none';
+
+    // NEW: Return the numeric value used to prioritise a chore.
+    function newGetKidsChoreSortValue(chore) {
+        if (!chore) return 0;
+        if (newKidsChoreSortMode === 'money') return Number(chore.reward) || 0;
+        if (newKidsChoreSortMode === 'gus') return Number(chore.gusPointsReward) || 0;
+        if (newKidsChoreSortMode === 'screen') return Number(chore.screenTimeReward) || 0;
+        return 0;
+    }
+
+    // NEW: Add the requested money, Gus Points, screen-time and filter-off controls.
+    function newRenderKidsChoreValueFilters() {
+        if (typeof appData === 'undefined' || appData.isParentMode) return;
+
+        var choreList = document.getElementById('kidsChoreList');
+        if (!choreList || !choreList.parentElement) return;
+
+        var controls = document.getElementById('newKidsChoreValueFilters');
+        if (!controls) {
+            controls = document.createElement('div');
+            controls.id = 'newKidsChoreValueFilters';
+            controls.className = 'flex items-center gap-1.5 mb-2';
+            controls.innerHTML =
+                '<span class="text-[10px] font-extrabold text-slate-400 mr-1">Prioritise:</span>' +
+                '<button type="button" data-sort-mode="money" title="Highest money first" class="new-kids-chore-filter px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">£</button>' +
+                '<button type="button" data-sort-mode="gus" title="Highest Gus Points first" class="new-kids-chore-filter px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">🐾</button>' +
+                '<button type="button" data-sort-mode="screen" title="Highest screen time first" class="new-kids-chore-filter px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">🎮</button>' +
+                '<button type="button" data-sort-mode="none" title="Turn off chore priority" class="new-kids-chore-filter px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">Off</button>';
+
+            controls.addEventListener('click', function(event) {
+                var button = event.target.closest('[data-sort-mode]');
+                if (!button) return;
+                newKidsChoreSortMode = button.getAttribute('data-sort-mode') || 'none';
+                newRefreshKidsChoreValueFilters();
+                newSortKidsChoreCards();
+            });
+
+            choreList.parentElement.insertBefore(controls, choreList);
+        }
+
+        newRefreshKidsChoreValueFilters();
+    }
+
+    // NEW: Highlight only the newly-added filter button that is currently active.
+    function newRefreshKidsChoreValueFilters() {
+        var controls = document.getElementById('newKidsChoreValueFilters');
+        if (!controls) return;
+
+        controls.querySelectorAll('[data-sort-mode]').forEach(function(button) {
+            var active = button.getAttribute('data-sort-mode') === newKidsChoreSortMode;
+            button.className = active
+                ? 'new-kids-chore-filter px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-sm transition-all'
+                : 'new-kids-chore-filter px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all';
+        });
+    }
+
+    // NEW: Reorder the already-rendered chore cards without changing their HTML, styling or behaviour.
+    function newSortKidsChoreCards() {
+        if (newKidsChoreSortMode === 'none') return;
+
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var choreList = document.getElementById('kidsChoreList');
+        if (!child || !choreList || !Array.isArray(child.chores)) return;
+
+        var selectedDay = typeof currentKidsDayFilter !== 'undefined' ? currentKidsDayFilter : null;
+        var dayChores = child.chores.filter(function(chore) {
+            return chore.days && chore.days.includes(selectedDay);
+        });
+
+        var cards = Array.prototype.slice.call(choreList.children);
+        if (!dayChores.length || cards.length !== dayChores.length) return;
+
+        var pairs = dayChores.map(function(chore, index) {
+            return { chore: chore, card: cards[index], index: index };
+        });
+
+        pairs.sort(function(a, b) {
+            var difference = newGetKidsChoreSortValue(b.chore) - newGetKidsChoreSortValue(a.chore);
+            return difference !== 0 ? difference : a.index - b.index;
+        });
+
+        pairs.forEach(function(pair) {
+            choreList.appendChild(pair.card);
+        });
+    }
+
+    // NEW: Wrap the current kids renderer so the existing chore renderer remains untouched.
+    var newKidsChoreFilterPreviousRender = window.renderKidsPortal;
+    if (typeof newKidsChoreFilterPreviousRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newKidsChoreFilterPreviousRender.apply(this, arguments);
+            newRenderKidsChoreValueFilters();
+            newSortKidsChoreCards();
+            return result;
+        };
+    }
+
+    // NEW: Public helper for optional testing without changing the existing app API.
+    window.petpalSetKidsChorePriority = function(mode) {
+        if (['none', 'money', 'gus', 'screen'].indexOf(mode) === -1) mode = 'none';
+        newKidsChoreSortMode = mode;
+        newRenderKidsChoreValueFilters();
+        newSortKidsChoreCards();
+    };
+})();
+</script>
+
