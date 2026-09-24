@@ -4595,3 +4595,202 @@
     window.petpalRefreshChoreBalance = newRenderChoreBalanceSummary;
 })();
 </script>
+
+
+<!-- NEW: ISOLATED CONTEXTUAL GUS TREATMENT ANIMATION -->
+<script>
+(function() {
+    // NEW: Adds only temporary animation styles; existing styling and layout are untouched.
+    function newAddContextualGusAnimationStyles() {
+        if (document.getElementById('newContextualGusAnimationStyles')) return;
+
+        var style = document.createElement('style');
+        style.id = 'newContextualGusAnimationStyles';
+        style.textContent = `
+            @keyframes newGusTreatAction {
+                0%   { transform: translateY(0) scale(1); }
+                18%  { transform: translateY(-5px) scale(1.03); }
+                38%  { transform: translateY(0) scale(0.99); }
+                55%  { transform: translateY(-3px) scale(1.02); }
+                72%  { transform: translateY(0) scale(1); }
+                100% { transform: translateY(0) scale(1); }
+            }
+
+            @keyframes newGusGroomAction {
+                0%   { transform: rotate(0deg) translateX(0); }
+                15%  { transform: rotate(-3deg) translateX(-2px); }
+                30%  { transform: rotate(3deg) translateX(2px); }
+                45%  { transform: rotate(-2deg) translateX(-1px); }
+                60%  { transform: rotate(2deg) translateX(1px); }
+                75%  { transform: rotate(0deg) translateX(0); }
+                100% { transform: rotate(0deg) translateX(0); }
+            }
+
+            @keyframes newGusFetchAction {
+                0%   { transform: translateY(0) scale(1); }
+                18%  { transform: translateY(3px) scale(0.98); }
+                42%  { transform: translateY(-15px) scale(1.07); }
+                62%  { transform: translateY(-5px) scale(1.03); }
+                78%  { transform: translateY(0) scale(1); }
+                100% { transform: translateY(0) scale(1); }
+            }
+
+            @keyframes newGusTreatTongue {
+                0%, 100% { transform: scaleY(1); }
+                35% { transform: scaleY(1.65) translateY(2px); }
+                60% { transform: scaleY(0.8); }
+            }
+
+            @keyframes newGusGroomTail {
+                0%, 100% { transform: rotate(0deg); }
+                25% { transform: rotate(28deg); }
+                50% { transform: rotate(-18deg); }
+                75% { transform: rotate(24deg); }
+            }
+
+            @keyframes newGusFetchTail {
+                0%, 100% { transform: rotate(0deg); }
+                20% { transform: rotate(38deg); }
+                40% { transform: rotate(-30deg); }
+                60% { transform: rotate(42deg); }
+                80% { transform: rotate(-20deg); }
+            }
+
+            @keyframes newGusContextBadge {
+                0% { opacity: 0; transform: translate(-50%, 8px) scale(0.7); }
+                20% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+                75% { opacity: 1; transform: translate(-50%, -4px) scale(1); }
+                100% { opacity: 0; transform: translate(-50%, -16px) scale(0.8); }
+            }
+
+            .new-gus-treat-action {
+                animation: newGusTreatAction 1100ms ease-out both !important;
+                transform-origin: 50% 80%;
+            }
+
+            .new-gus-groom-action {
+                animation: newGusGroomAction 1200ms ease-in-out both !important;
+                transform-origin: 50% 80%;
+            }
+
+            .new-gus-fetch-action {
+                animation: newGusFetchAction 1050ms cubic-bezier(.2,.8,.3,1) both !important;
+                transform-origin: 50% 85%;
+            }
+
+            .new-gus-treat-action #gusTongue {
+                transform-box: fill-box;
+                transform-origin: center top;
+                animation: newGusTreatTongue 800ms ease-in-out 120ms 2 both;
+            }
+
+            .new-gus-groom-action .gus-wag {
+                animation: newGusGroomTail 300ms ease-in-out 0s 4 both !important;
+            }
+
+            .new-gus-fetch-action .gus-wag {
+                animation: newGusFetchTail 220ms ease-in-out 0s 5 both !important;
+            }
+
+            .new-gus-context-badge {
+                position: absolute;
+                left: 50%;
+                top: 6px;
+                z-index: 3;
+                pointer-events: none;
+                font-size: 22px;
+                line-height: 1;
+                animation: newGusContextBadge 1250ms ease-out both;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // NEW: Shows a small temporary visual cue that matches the interaction being performed.
+    function newShowContextualGusCue(action) {
+        var container = document.querySelector('#gusSvg') ? document.querySelector('#gusSvg').parentElement : null;
+        if (!container) return;
+
+        var oldCue = container.querySelector('.new-gus-context-badge');
+        if (oldCue) oldCue.remove();
+
+        var cue = document.createElement('div');
+        cue.className = 'new-gus-context-badge';
+
+        if (action === 'treat') {
+            cue.textContent = '🍪💖';
+        } else if (action === 'brush') {
+            cue.textContent = '🪮✨';
+        } else if (action === 'play') {
+            cue.textContent = '🦴🐾';
+        } else {
+            cue.textContent = '💖🐾';
+        }
+
+        container.appendChild(cue);
+        setTimeout(function() {
+            if (cue.parentElement) cue.remove();
+        }, 1350);
+    }
+
+    // NEW: Performs a different, context-specific action for Treat, Groom, and Fetch.
+    function newAnimateGusForInteraction(action) {
+        newAddContextualGusAnimationStyles();
+
+        var gusSvg = document.getElementById('gusSvg');
+        if (!gusSvg) return;
+
+        gusSvg.classList.remove(
+            'new-gus-treat-action',
+            'new-gus-groom-action',
+            'new-gus-fetch-action'
+        );
+
+        void gusSvg.offsetWidth;
+
+        if (action === 'treat') {
+            gusSvg.classList.add('new-gus-treat-action');
+        } else if (action === 'brush') {
+            gusSvg.classList.add('new-gus-groom-action');
+        } else if (action === 'play') {
+            gusSvg.classList.add('new-gus-fetch-action');
+        } else {
+            return;
+        }
+
+        newShowContextualGusCue(action);
+
+        setTimeout(function() {
+            if (!gusSvg.parentElement) return;
+            gusSvg.classList.remove(
+                'new-gus-treat-action',
+                'new-gus-groom-action',
+                'new-gus-fetch-action'
+            );
+        }, 1400);
+    }
+
+    // NEW: Wraps only the existing interaction entry point; its original logic remains unchanged.
+    var newOriginalInteractWithGus = window.interactWithGus;
+    if (typeof newOriginalInteractWithGus === 'function') {
+        window.interactWithGus = function(action) {
+            var childBefore = (typeof getActiveChild === 'function') ? getActiveChild() : null;
+            var pointsBefore = childBefore ? Number(childBefore.gusPoints || 0) : 0;
+            var cost = action === 'brush' ? 15 : (action === 'play' ? 20 : 10);
+
+            newOriginalInteractWithGus.apply(this, arguments);
+
+            // NEW: Only animate after a successful spend, so failed interactions remain unchanged.
+            var childAfter = (typeof getActiveChild === 'function') ? getActiveChild() : null;
+            var pointsAfter = childAfter ? Number(childAfter.gusPoints || 0) : pointsBefore;
+
+            if (pointsAfter < pointsBefore && pointsBefore - pointsAfter === cost) {
+                newAnimateGusForInteraction(action);
+            }
+        };
+    }
+
+    // NEW: Public helper for optional future testing without changing the existing interaction logic.
+    window.petpalAnimateGusInteraction = newAnimateGusForInteraction;
+})();
+</script>
