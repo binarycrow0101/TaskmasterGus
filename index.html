@@ -4794,3 +4794,443 @@
     window.petpalAnimateGusInteraction = newAnimateGusForInteraction;
 })();
 </script>
+
+
+<!-- NEW: ISOLATED RELIABLE CHORE PRIORITY SORT PATCH -->
+<script>
+(function() {
+    // NEW: Keep the existing filter UI and behavior, but make the final card-to-chore
+    // NEW: association ID-based so sorting cannot depend on card position.
+    var newReliableKidsChoreSortMode = 'none';
+
+    // NEW: Read the chore ID from the existing Done button without changing its markup.
+    function newReliableGetChoreIdFromCard(card) {
+        if (!card) return null;
+        var button = card.querySelector('button[onclick*="completeChoreByKid"]');
+        if (!button) return null;
+        var match = button.getAttribute('onclick').match(/completeChoreByKid\(['"]([^'"]+)['"]/);
+        return match ? match[1] : null;
+    }
+
+    // NEW: Return the exact numeric value for the selected priority mode.
+    function newReliableGetSortValue(chore) {
+        if (!chore) return 0;
+        if (newReliableKidsChoreSortMode === 'money') return Number(chore.reward) || 0;
+        if (newReliableKidsChoreSortMode === 'gus') return Number(chore.gusPointsReward) || 0;
+        if (newReliableKidsChoreSortMode === 'screen') return Number(chore.screenTimeReward) || 0;
+        return 0;
+    }
+
+    // NEW: Sort the actual rendered cards by their own chore IDs, never by array position.
+    function newReliableSortKidsChoreCards() {
+        if (newReliableKidsChoreSortMode === 'none') return;
+
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var choreList = document.getElementById('kidsChoreList');
+        if (!child || !choreList || !Array.isArray(child.chores)) return;
+
+        var choreById = {};
+        child.chores.forEach(function(chore, index) {
+            if (chore && chore.id != null) {
+                choreById[String(chore.id)] = { chore: chore, index: index };
+            }
+        });
+
+        var cards = Array.prototype.slice.call(choreList.children).map(function(card, index) {
+            var id = newReliableGetChoreIdFromCard(card);
+            var record = id != null ? choreById[String(id)] : null;
+            return {
+                card: card,
+                chore: record ? record.chore : null,
+                index: record ? record.index : index
+            };
+        });
+
+        if (!cards.length || cards.some(function(item) { return !item.chore; })) return;
+
+        cards.sort(function(a, b) {
+            var difference = newReliableGetSortValue(b.chore) - newReliableGetSortValue(a.chore);
+            return difference !== 0 ? difference : a.index - b.index;
+        });
+
+        var fragment = document.createDocumentFragment();
+        cards.forEach(function(item) { fragment.appendChild(item.card); });
+        choreList.appendChild(fragment);
+    }
+
+    // NEW: Track the existing filter buttons without replacing or modifying their handlers.
+    function newReliableAttachFilterTracking() {
+        var controls = document.getElementById('newKidsChoreValueFilters');
+        if (!controls || controls.getAttribute('data-reliable-sort-attached') === '1') return;
+        controls.setAttribute('data-reliable-sort-attached', '1');
+
+        controls.addEventListener('click', function(event) {
+            var button = event.target.closest('[data-sort-mode]');
+            if (!button) return;
+            newReliableKidsChoreSortMode = button.getAttribute('data-sort-mode') || 'none';
+            setTimeout(newReliableSortKidsChoreCards, 0);
+        });
+    }
+
+    // NEW: Run after the complete existing render wrapper chain, then re-apply the selected order.
+    var newReliablePreviousRenderKidsPortal = window.renderKidsPortal;
+    if (typeof newReliablePreviousRenderKidsPortal === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newReliablePreviousRenderKidsPortal.apply(this, arguments);
+            newReliableAttachFilterTracking();
+            newReliableSortKidsChoreCards();
+            return result;
+        };
+    }
+
+    // NEW: Public helper for deterministic testing of the repaired sorting layer.
+    window.petpalReliableChorePrioritySort = function(mode) {
+        if (['none', 'money', 'gus', 'screen'].indexOf(mode) === -1) mode = 'none';
+        newReliableKidsChoreSortMode = mode;
+        newReliableAttachFilterTracking();
+        newReliableSortKidsChoreCards();
+    };
+
+    // NEW: Attach once after the page is ready without changing the existing renderer.
+    document.addEventListener('DOMContentLoaded', function() {
+        newReliableAttachFilterTracking();
+        newReliableSortKidsChoreCards();
+    });
+})();
+</script>
+
+
+<!-- NEW: ISOLATED TWO-WAY CHORE FILTER TOGGLE PATCH -->
+<script>
+(function() {
+    // NEW: Keep the two-way sort direction completely isolated from the existing filter state.
+    var newToggleKidsChoreSortMode = 'none';
+    var newToggleKidsChoreSortDirection = 'desc';
+
+    // NEW: Read the selected chore value from the actual stored chore data.
+    function newToggleGetChoreSortValue(chore) {
+        if (!chore) return 0;
+        if (newToggleKidsChoreSortMode === 'money') return Number(chore.reward) || 0;
+        if (newToggleKidsChoreSortMode === 'gus') return Number(chore.gusPointsReward) || 0;
+        if (newToggleKidsChoreSortMode === 'screen') return Number(chore.screenTimeReward) || 0;
+        return 0;
+    }
+
+    // NEW: Recover the chore ID from each rendered card so the correct chore is always sorted.
+    function newToggleGetChoreIdFromCard(card) {
+        if (!card) return null;
+        var button = card.querySelector('button[onclick*="completeChoreByKid"]');
+        if (!button) return null;
+        var match = button.getAttribute('onclick').match(/completeChoreByKid\(['"]([^'"]+)['"]/);
+        return match ? match[1] : null;
+    }
+
+    // NEW: Restore the original chore order exactly as it exists in the child's chore array.
+    function newToggleRestoreOriginalChoreOrder() {
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var choreList = document.getElementById('kidsChoreList');
+        if (!child || !choreList || !Array.isArray(child.chores)) return;
+
+        var cardsById = {};
+        Array.prototype.slice.call(choreList.children).forEach(function(card) {
+            var id = newToggleGetChoreIdFromCard(card);
+            if (id != null) cardsById[String(id)] = card;
+        });
+
+        var selectedDay = typeof currentKidsDayFilter !== 'undefined' ? currentKidsDayFilter : null;
+        child.chores.forEach(function(chore) {
+            if (!chore || !chore.days || !chore.days.includes(selectedDay)) return;
+            var card = cardsById[String(chore.id)];
+            if (card) choreList.appendChild(card);
+        });
+    }
+
+    // NEW: Apply ascending or descending order to the actual rendered cards.
+    function newToggleSortKidsChoreCards() {
+        if (newToggleKidsChoreSortMode === 'none') {
+            newToggleRestoreOriginalChoreOrder();
+            return;
+        }
+
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var choreList = document.getElementById('kidsChoreList');
+        if (!child || !choreList || !Array.isArray(child.chores)) return;
+
+        var choreById = {};
+        child.chores.forEach(function(chore, index) {
+            if (chore && chore.id != null) {
+                choreById[String(chore.id)] = { chore: chore, index: index };
+            }
+        });
+
+        var cards = Array.prototype.slice.call(choreList.children).map(function(card, index) {
+            var id = newToggleGetChoreIdFromCard(card);
+            var record = id != null ? choreById[String(id)] : null;
+            return {
+                card: card,
+                chore: record ? record.chore : null,
+                index: record ? record.index : index
+            };
+        });
+
+        if (!cards.length || cards.some(function(item) { return !item.chore; })) return;
+
+        cards.sort(function(a, b) {
+            var aValue = newToggleGetChoreSortValue(a.chore);
+            var bValue = newToggleGetChoreSortValue(b.chore);
+            var difference = newToggleKidsChoreSortDirection === 'asc'
+                ? aValue - bValue
+                : bValue - aValue;
+            return difference !== 0 ? difference : a.index - b.index;
+        });
+
+        var fragment = document.createDocumentFragment();
+        cards.forEach(function(item) { fragment.appendChild(item.card); });
+        choreList.appendChild(fragment);
+    }
+
+    // NEW: Track clicks after the existing filter handler, then apply the requested direction.
+    function newToggleAttachKidsChoreFilter() {
+        var controls = document.getElementById('newKidsChoreValueFilters');
+        if (!controls || controls.getAttribute('data-two-way-sort-attached') === '1') return;
+        controls.setAttribute('data-two-way-sort-attached', '1');
+
+        controls.addEventListener('click', function(event) {
+            var button = event.target.closest('[data-sort-mode]');
+            if (!button) return;
+
+            var mode = button.getAttribute('data-sort-mode') || 'none';
+
+            if (mode === 'none') {
+                // NEW: Off has one function only: restore the original chore order.
+                newToggleKidsChoreSortMode = 'none';
+                newToggleKidsChoreSortDirection = 'desc';
+                setTimeout(newToggleSortKidsChoreCards, 0);
+                return;
+            }
+
+            if (mode === newToggleKidsChoreSortMode) {
+                // NEW: Pressing the same filter again reverses its current direction.
+                newToggleKidsChoreSortDirection = newToggleKidsChoreSortDirection === 'desc' ? 'asc' : 'desc';
+            } else {
+                // NEW: Selecting a different value filter always starts highest-to-lowest.
+                newToggleKidsChoreSortMode = mode;
+                newToggleKidsChoreSortDirection = 'desc';
+            }
+
+            setTimeout(newToggleSortKidsChoreCards, 0);
+        });
+    }
+
+    // NEW: Re-apply the active direction after every existing kids render.
+    var newTogglePreviousKidsRender = window.renderKidsPortal;
+    if (typeof newTogglePreviousKidsRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newTogglePreviousKidsRender.apply(this, arguments);
+            newToggleAttachKidsChoreFilter();
+            newToggleSortKidsChoreCards();
+            return result;
+        };
+    }
+
+    // NEW: Keep the two-way filter deterministic for optional external testing.
+    window.petpalSetKidsChorePriorityToggle = function(mode, direction) {
+        if (['none', 'money', 'gus', 'screen'].indexOf(mode) === -1) mode = 'none';
+        newToggleKidsChoreSortMode = mode;
+        newToggleKidsChoreSortDirection = direction === 'asc' ? 'asc' : 'desc';
+        newToggleAttachKidsChoreFilter();
+        newToggleSortKidsChoreCards();
+    };
+
+    // NEW: Attach the isolated behavior once the page is ready.
+    document.addEventListener('DOMContentLoaded', function() {
+        newToggleAttachKidsChoreFilter();
+        newToggleSortKidsChoreCards();
+    });
+})();
+</script>
+
+
+<!-- NEW: ISOLATED FINAL KIDS CHORE SORT CORRECTION -->
+<script>
+(function() {
+    // NEW: Final isolated sort state. This does not modify any existing app state.
+    var newFinalKidsSortMode = 'none';
+    var newFinalKidsSortDirection = 'desc';
+
+    // NEW: Convert stored reward values to reliable numbers, including common £/time text forms.
+    function newFinalKidsSortNumber(value) {
+        if (typeof value === 'number' && isFinite(value)) return value;
+        if (value === null || value === undefined) return 0;
+        var text = String(value).replace(/,/g, '');
+        var match = text.match(/-?\d+(?:\.\d+)?/);
+        return match ? Number(match[0]) : 0;
+    }
+
+    // NEW: Read the exact chore ID from the existing Done button without changing that button.
+    function newFinalGetChoreIdFromCard(card) {
+        if (!card) return null;
+        var buttons = card.querySelectorAll('button[onclick]');
+        for (var i = 0; i < buttons.length; i++) {
+            var onclick = buttons[i].getAttribute('onclick') || '';
+            if (onclick.indexOf('completeChoreByKid') === -1) continue;
+            var match = onclick.match(/completeChoreByKid\s*\(\s*['"]([^'"]+)['"]/);
+            if (match) return match[1];
+        }
+        return null;
+    }
+
+    // NEW: Read the active child's actual stored chores and keep only chores shown for the selected day.
+    function newFinalGetVisibleChoreRecords() {
+        var activeChild = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var choreList = document.getElementById('kidsChoreList');
+        if (!activeChild || !choreList || !Array.isArray(activeChild.chores)) return null;
+
+        var selectedDay = typeof currentKidsDayFilter !== 'undefined' ? currentKidsDayFilter : null;
+        var records = [];
+        activeChild.chores.forEach(function(chore, originalIndex) {
+            if (!chore || chore.id == null) return;
+            if (!Array.isArray(chore.days) || chore.days.indexOf(selectedDay) === -1) return;
+            records.push({
+                chore: chore,
+                originalIndex: originalIndex
+            });
+        });
+        return records;
+    }
+
+    // NEW: Sort the already-rendered cards by their matching stored chore values.
+    function newFinalApplyKidsChoreSort() {
+        var choreList = document.getElementById('kidsChoreList');
+        if (!choreList) return;
+
+        var records = newFinalGetVisibleChoreRecords();
+        if (!records) return;
+
+        var recordById = {};
+        records.forEach(function(record) {
+            recordById[String(record.chore.id)] = record;
+        });
+
+        var cards = Array.prototype.slice.call(choreList.children);
+        var matched = [];
+        var unmatched = [];
+
+        cards.forEach(function(card, domIndex) {
+            var id = newFinalGetChoreIdFromCard(card);
+            var record = id != null ? recordById[String(id)] : null;
+            if (record) {
+                matched.push({
+                    card: card,
+                    record: record,
+                    domIndex: domIndex
+                });
+            } else {
+                unmatched.push({ card: card, domIndex: domIndex });
+            }
+        });
+
+        if (!matched.length) return;
+
+        if (newFinalKidsSortMode === 'none') {
+            matched.sort(function(a, b) {
+                return a.record.originalIndex - b.record.originalIndex;
+            });
+        } else {
+            matched.sort(function(a, b) {
+                var aValue;
+                var bValue;
+
+                if (newFinalKidsSortMode === 'money') {
+                    aValue = newFinalKidsSortNumber(a.record.chore.reward);
+                    bValue = newFinalKidsSortNumber(b.record.chore.reward);
+                } else if (newFinalKidsSortMode === 'gus') {
+                    aValue = newFinalKidsSortNumber(a.record.chore.gusPointsReward);
+                    bValue = newFinalKidsSortNumber(b.record.chore.gusPointsReward);
+                } else if (newFinalKidsSortMode === 'screen') {
+                    aValue = newFinalKidsSortNumber(a.record.chore.screenTimeReward);
+                    bValue = newFinalKidsSortNumber(b.record.chore.screenTimeReward);
+                } else {
+                    aValue = 0;
+                    bValue = 0;
+                }
+
+                var difference = newFinalKidsSortDirection === 'asc'
+                    ? aValue - bValue
+                    : bValue - aValue;
+
+                return difference !== 0
+                    ? difference
+                    : a.record.originalIndex - b.record.originalIndex;
+            });
+        }
+
+        // NEW: Rebuild only the rendered chore-card order; no data, classes, styling or existing nodes are changed.
+        var fragment = document.createDocumentFragment();
+        matched.forEach(function(item) {
+            fragment.appendChild(item.card);
+        });
+        unmatched.forEach(function(item) {
+            fragment.appendChild(item.card);
+        });
+        choreList.appendChild(fragment);
+    }
+
+    // NEW: Attach after all previous filter handlers so this final correction becomes the last ordering operation.
+    function newFinalAttachKidsChoreSort() {
+        var controls = document.getElementById('newKidsChoreValueFilters');
+        if (!controls || controls.getAttribute('data-final-sort-attached') === '1') return;
+        controls.setAttribute('data-final-sort-attached', '1');
+
+        controls.addEventListener('click', function(event) {
+            var button = event.target.closest('[data-sort-mode]');
+            if (!button) return;
+
+            var mode = button.getAttribute('data-sort-mode') || 'none';
+
+            if (mode === 'none') {
+                newFinalKidsSortMode = 'none';
+                newFinalKidsSortDirection = 'desc';
+            } else if (mode === newFinalKidsSortMode) {
+                newFinalKidsSortDirection = newFinalKidsSortDirection === 'desc' ? 'asc' : 'desc';
+            } else {
+                newFinalKidsSortMode = mode;
+                newFinalKidsSortDirection = 'desc';
+            }
+
+            // NEW: Wait until every earlier click handler has completed, then make this ordering final.
+            setTimeout(function() {
+                newFinalApplyKidsChoreSort();
+            }, 0);
+        });
+    }
+
+    // NEW: Reapply the selected ordering after every normal kids render.
+    var newFinalPreviousKidsRender = window.renderKidsPortal;
+    if (typeof newFinalPreviousKidsRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newFinalPreviousKidsRender.apply(this, arguments);
+            newFinalAttachKidsChoreSort();
+            setTimeout(function() {
+                newFinalApplyKidsChoreSort();
+            }, 0);
+            return result;
+        };
+    }
+
+    // NEW: Deterministic helper for testing the final sort layer.
+    window.petpalFinalKidsChoreSort = function(mode, direction) {
+        if (['none', 'money', 'gus', 'screen'].indexOf(mode) === -1) mode = 'none';
+        newFinalKidsSortMode = mode;
+        newFinalKidsSortDirection = direction === 'asc' ? 'asc' : 'desc';
+        newFinalAttachKidsChoreSort();
+        newFinalApplyKidsChoreSort();
+    };
+
+    // NEW: Initial attachment for already-rendered kids view.
+    document.addEventListener('DOMContentLoaded', function() {
+        newFinalAttachKidsChoreSort();
+        newFinalApplyKidsChoreSort();
+    });
+})();
+</script>
