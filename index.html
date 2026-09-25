@@ -5234,3 +5234,526 @@
     });
 })();
 </script>
+
+<!-- NEW: ISOLATED GUS'S CHALLENGE OF THE DAY PER-CHILD SYSTEM -->
+<script>
+(function() {
+    // NEW: Each child gets an independent challenge record for the current calendar day.
+    var NEW_GUS_CHALLENGE_KEY = 'gusDailyChallenges';
+
+    // NEW: Local-date key keeps challenges tied to the parent's current calendar day.
+    function newGusChallengeDateKey(date) {
+        var d = date || new Date();
+        var y = d.getFullYear();
+        var m = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        return y + '-' + m + '-' + day;
+    }
+
+    // NEW: Read/write only the isolated challenge store.
+    function newGusChallengeRead() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_CHALLENGE_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function newGusChallengeWrite(value) {
+        try { localStorage.setItem(NEW_GUS_CHALLENGE_KEY, JSON.stringify(value)); } catch (e) {}
+    }
+
+    // NEW: Return today's challenge for one child, ignoring stale challenges from previous days.
+    function newGetGusChallenge(childId) {
+        var all = newGusChallengeRead();
+        var record = all[String(childId || '')];
+        if (!record || record.date !== newGusChallengeDateKey()) return null;
+        return record;
+    }
+
+    // NEW: Basic HTML escaping for the isolated parent/kid text.
+    function newGusChallengeEscape(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // NEW: Find the current calendar day's abbreviation without changing the existing day filter.
+    function newGusChallengeToday() {
+        return typeof getCurrentDayAbbrev === 'function'
+            ? getCurrentDayAbbrev()
+            : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+    }
+
+    // NEW: Get today's chores for a child using the existing chore schedule.
+    function newGetGusChallengeTodayChores(child) {
+        if (!child || !Array.isArray(child.chores)) return [];
+        var today = newGusChallengeToday();
+        return child.chores.filter(function(chore) {
+            return chore && chore.id != null && Array.isArray(chore.days) && chore.days.indexOf(today) !== -1;
+        });
+    }
+
+    // NEW: Save one child's challenge without touching any other child or appData field.
+    function newSetGusChallenge(childId, choreId) {
+        var all = newGusChallengeRead();
+        all[String(childId)] = {
+            date: newGusChallengeDateKey(),
+            choreId: String(choreId),
+            completed: false
+        };
+        newGusChallengeWrite(all);
+    }
+
+    // NEW: Clear only today's challenge for one child.
+    function newClearGusChallenge(childId) {
+        var all = newGusChallengeRead();
+        delete all[String(childId)];
+        newGusChallengeWrite(all);
+    }
+
+    // NEW: Read the existing per-child monthly Gus Star state used by the app.
+    function newGusChallengeGetStarState(childId) {
+        var all = {};
+        try {
+            var raw = localStorage.getItem('gusChildStarStates');
+            var parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') all = parsed;
+        } catch (e) {}
+        var id = String(childId || 'child');
+        if (!all[id]) all[id] = { totalStars: 0, stage: 0 };
+        all[id].totalStars = Math.max(0, Math.floor(Number(all[id].totalStars) || 0));
+        all[id].stage = [0, 1, 2].indexOf(parseInt(all[id].stage, 10)) !== -1 ? parseInt(all[id].stage, 10) : 0;
+        return { all: all, state: all[id] };
+    }
+
+    // NEW: Save the challenge star into the same monthly per-child star balance already used by PetPal.
+    function newGusChallengeSaveStarState(store) {
+        try { localStorage.setItem('gusChildStarStates', JSON.stringify(store.all)); } catch (e) {}
+    }
+
+    // NEW: Read the existing per-child reward thresholds so a challenge star participates in the same cycle.
+    function newGusChallengeGetSettings(childId) {
+        var all = {};
+        try {
+            var raw = localStorage.getItem('gusChildRewardSettings');
+            var parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') all = parsed;
+        } catch (e) {}
+        var id = String(childId || 'child');
+        var settings = all[id] || { LOW: 10, MEDIUM: 25, HIGH: 50 };
+        ['LOW', 'MEDIUM', 'HIGH'].forEach(function(tier) {
+            var value = parseInt(settings[tier], 10);
+            if (!Number.isFinite(value) || value < 1) settings[tier] = { LOW: 10, MEDIUM: 25, HIGH: 50 }[tier];
+        });
+        return settings;
+    }
+
+    // NEW: Use the existing reward-pool format for a challenge milestone when one is reached.
+    function newGusChallengePickReward(tier) {
+        var rewards = [];
+        try {
+            var raw = localStorage.getItem('gusRewardsPool');
+            var parsed = raw ? JSON.parse(raw) : [];
+            rewards = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {}
+        var matching = rewards.filter(function(reward) {
+            return String(reward && reward.tier || '').toUpperCase() === tier;
+        });
+        return matching.length ? matching[Math.floor(Math.random() * matching.length)] : null;
+    }
+
+    // NEW: Keep challenge-earned milestones compatible with the existing per-child reward history.
+    function newGusChallengeRecordReward(childId, tier, reward, threshold) {
+        var all = {};
+        try {
+            var raw = localStorage.getItem('gusChildRewardHistory');
+            var parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') all = parsed;
+        } catch (e) {}
+        var id = String(childId || 'child');
+        if (!Array.isArray(all[id])) all[id] = [];
+        all[id].push({
+            id: 'gus_child_reward_challenge_' + Date.now(),
+            date: newGusChallengeDateKey(),
+            tier: tier,
+            reward: reward ? reward.name : '',
+            starsRequired: threshold
+        });
+        all[id] = all[id].slice(-50);
+        try { localStorage.setItem('gusChildRewardHistory', JSON.stringify(all)); } catch (e) {}
+    }
+
+    // NEW: Small isolated celebration for a reward milestone caused by the challenge star.
+    function newGusChallengeShowMilestone(child, tier, reward, threshold) {
+        var existing = document.getElementById('newGusChallengeRewardModal');
+        if (existing) existing.remove();
+        var modal = document.createElement('div');
+        modal.id = 'newGusChallengeRewardModal';
+        modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[81] flex items-center justify-center p-4';
+        modal.innerHTML =
+            '<div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center relative overflow-hidden">' +
+                '<div class="relative z-10">' +
+                    '<div class="mx-auto w-32 h-28 flex items-end justify-center text-7xl">🐶✨</div>' +
+                    '<div class="text-[10px] font-extrabold tracking-widest text-indigo-500 uppercase">' + newGusChallengeEscape(tier) + ' Gus Surprise</div>' +
+                    '<h3 class="font-black text-slate-900 text-xl mt-1">Gus gave you a reward!</h3>' +
+                    '<p class="text-xs text-slate-500 mt-1">You reached ' + threshold + ' stars for this Gus surprise.</p>' +
+                    '<div class="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200">' +
+                        '<div class="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider">Your Reward</div>' +
+                        '<div class="font-black text-amber-900 text-lg mt-1">' + newGusChallengeEscape(reward ? reward.name : 'A special surprise from Gus!') + '</div>' +
+                    '</div>' +
+                    '<p class="text-[10px] font-bold text-slate-500 mt-3">Your stars stay with you — keep making Gus happy!</p>' +
+                    '<button id="newGusChallengeRewardClose" class="mt-4 w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-md">Yay, Gus! 🐾</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(modal);
+        var close = document.getElementById('newGusChallengeRewardClose');
+        if (close) close.onclick = function() {
+            modal.remove();
+            if (typeof renderKidsPortal === 'function' && !appData.isParentMode) renderKidsPortal();
+            if (typeof renderParentPortal === 'function' && appData.isParentMode) renderParentPortal();
+        };
+        if (typeof AudioEngine !== 'undefined' && AudioEngine.playCoin) {
+            try { AudioEngine.playCoin(); } catch (e) {}
+        }
+        if (typeof confetti === 'function') {
+            try { confetti({ particleCount: 90, spread: 100, origin: { y: 0.55 } }); } catch (e) {}
+        }
+        void child;
+    }
+
+    // NEW: Award exactly one challenge star, once per child/day, after the chore has been approved.
+    function newAwardGusChallengeStar(child) {
+        if (!child || !child.id) return;
+        var challenge = newGetGusChallenge(child.id);
+        if (!challenge || challenge.completed) return;
+
+        var today = newGusChallengeToday();
+        var chore = Array.isArray(child.chores) ? child.chores.find(function(item) {
+            return item && String(item.id) === String(challenge.choreId);
+        }) : null;
+        if (!chore || !Array.isArray(chore.days) || chore.days.indexOf(today) === -1) return;
+        if (typeof ensureChoreStatusByDay === 'function') ensureChoreStatusByDay(chore);
+        if (!chore.statusByDay || chore.statusByDay[today] !== 'completed') return;
+
+        var allChallenges = newGusChallengeRead();
+        if (!allChallenges[String(child.id)] || allChallenges[String(child.id)].date !== newGusChallengeDateKey()) return;
+        allChallenges[String(child.id)].completed = true;
+        newGusChallengeWrite(allChallenges);
+
+        var store = newGusChallengeGetStarState(child.id);
+        store.state.totalStars += 1;
+
+        var tiers = ['LOW', 'MEDIUM', 'HIGH'];
+        var settings = newGusChallengeGetSettings(child.id);
+        var stage = store.state.stage;
+        var tier = tiers[stage] || 'LOW';
+        var threshold = settings[tier];
+        var reward = null;
+        var reachedMilestone = store.state.totalStars >= threshold;
+
+        if (reachedMilestone) {
+            reward = newGusChallengePickReward(tier);
+            if (reward) {
+                store.state.stage = stage === 2 ? 0 : stage + 1;
+                newGusChallengeRecordReward(child.id, tier, reward, threshold);
+            }
+        }
+
+        newGusChallengeSaveStarState(store);
+        try { saveData(); } catch (e) {}
+
+        if (reward) newGusChallengeShowMilestone(child, tier, reward, threshold);
+    }
+
+    // NEW: Parent control — set today's challenge for one specific child.
+    function newSetGusChallengeFromParent(childId, choreId) {
+        var child = Array.isArray(appData.children) ? appData.children.find(function(item) {
+            return String(item.id) === String(childId);
+        }) : null;
+        if (!child) return;
+        if (!newGetGusChallengeTodayChores(child).some(function(chore) { return String(chore.id) === String(choreId); })) {
+            alert('That chore is not scheduled for today.');
+            return;
+        }
+        newSetGusChallenge(child.id, choreId);
+        newRenderGusChallengeParentPanel();
+        if (typeof renderKidsPortal === 'function' && !appData.isParentMode) renderKidsPortal();
+    }
+
+    // NEW: Parent control — remove only the selected child's current challenge.
+    function newClearGusChallengeFromParent(childId) {
+        newClearGusChallenge(childId);
+        newRenderGusChallengeParentPanel();
+        if (typeof renderKidsPortal === 'function' && !appData.isParentMode) renderKidsPortal();
+    }
+
+    // NEW: Build the isolated Parent Portal challenge panel inside Manage Chores.
+    function newRenderGusChallengeParentPanel() {
+        if (typeof appData === 'undefined' || !appData.isParentMode) return;
+        var manageTab = document.getElementById('parentTabManage');
+        if (!manageTab || !Array.isArray(appData.children)) return;
+
+        var panel = document.getElementById('newGusChallengePanel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'newGusChallengePanel';
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            var firstPanel = manageTab.firstElementChild;
+            if (firstPanel) manageTab.insertBefore(panel, firstPanel);
+            else manageTab.appendChild(panel);
+        }
+
+        var today = newGusChallengeToday();
+        var todayName = new Date().toLocaleDateString('en-GB', { weekday: 'long', month: 'short', day: 'numeric' });
+        var html =
+            '<div class="flex items-center justify-between gap-3 mb-4">' +
+                '<div>' +
+                    '<h3 class="font-bold text-slate-800 text-sm flex items-center gap-2"><span>🐾</span> Gus\'s Challenge of the Day</h3>' +
+                    '<p class="text-xs text-slate-500 mt-1">Choose one job for each child. Completing it today earns 1 Gus Star.</p>' +
+                '</div>' +
+                '<span class="text-[10px] font-extrabold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg whitespace-nowrap">' + newGusChallengeEscape(todayName) + '</span>' +
+            '</div>';
+
+        appData.children.forEach(function(child) {
+            var challenge = newGetGusChallenge(child.id);
+            var chores = newGetGusChallengeTodayChores(child);
+            var options = chores.map(function(chore) {
+                return '<option value="' + newGusChallengeEscape(chore.id) + '" ' +
+                    (challenge && String(challenge.choreId) === String(chore.id) ? 'selected' : '') + '>' +
+                    newGusChallengeEscape(chore.title) + '</option>';
+            }).join('');
+
+            html +=
+                '<div class="border-t border-slate-100 pt-4 mt-4">' +
+                    '<div class="flex items-center justify-between gap-3 mb-2">' +
+                        '<div class="text-xs font-extrabold text-slate-800">' + newGusChallengeEscape(child.name) + '</div>' +
+                        (challenge && challenge.completed ? '<span class="text-[10px] font-extrabold text-emerald-600">Completed — ⭐ earned</span>' : '') +
+                    '</div>' +
+                    '<div class="flex flex-col sm:flex-row gap-2">' +
+                        '<select id="newGusChallengeSelect_' + newGusChallengeEscape(child.id) + '" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white" ' + (challenge && challenge.completed ? 'disabled' : '') + '>' +
+                            '<option value="">Select today\'s challenge...</option>' + options +
+                        '</select>' +
+                        '<button type="button" data-gus-challenge-child="' + newGusChallengeEscape(child.id) + '" class="new-gus-challenge-set px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm" ' + (challenge && challenge.completed ? 'disabled' : '') + '>Set Challenge</button>' +
+                        (challenge && !challenge.completed ? '<button type="button" data-gus-challenge-clear="' + newGusChallengeEscape(child.id) + '" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-200">Clear</button>' : '') +
+                    '</div>' +
+                '</div>';
+        });
+
+        panel.innerHTML = html;
+
+        panel.querySelectorAll('[data-gus-challenge-child]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-gus-challenge-child');
+                var select = document.getElementById('newGusChallengeSelect_' + childId);
+                if (!select || !select.value) {
+                    alert('Please choose a chore for today first.');
+                    return;
+                }
+                newSetGusChallengeFromParent(childId, select.value);
+            });
+        });
+        panel.querySelectorAll('[data-gus-challenge-clear]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                newClearGusChallengeFromParent(button.getAttribute('data-gus-challenge-clear'));
+            });
+        });
+    }
+
+    // NEW: Add a small challenge message to the matching Kids View chore without changing the existing card.
+    function newRenderGusChallengeKidIndicator() {
+        if (typeof appData === 'undefined' || appData.isParentMode) return;
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var list = document.getElementById('kidsChoreList');
+        if (!child || !list) return;
+
+        list.querySelectorAll('.new-gus-challenge-indicator').forEach(function(node) { node.remove(); });
+        var challenge = newGetGusChallenge(child.id);
+        if (!challenge || challenge.completed || newGusChallengeToday() !== currentKidsDayFilter) return;
+
+        var cards = Array.prototype.slice.call(list.children);
+        cards.forEach(function(card) {
+            var buttons = card.querySelectorAll('button[onclick]');
+            for (var i = 0; i < buttons.length; i++) {
+                var onclick = buttons[i].getAttribute('onclick') || '';
+                var match = onclick.match(/completeChoreByKid\s*\(\s*['"]([^'"]+)['"]/);
+                if (!match || String(match[1]) !== String(challenge.choreId)) continue;
+
+                var indicator = document.createElement('div');
+                indicator.className = 'new-gus-challenge-indicator text-[10px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg mb-2';
+                indicator.textContent = '🐾 Gus\'s Challenge — Complete today for +1 Gus Star ⭐';
+                card.insertBefore(indicator, card.firstChild);
+                return;
+            }
+        });
+    }
+
+    // NEW: After the full existing approval chain runs, award the challenge star if this was today's challenge.
+    var newGusChallengePreviousApprove = window.approveChore;
+    if (typeof newGusChallengePreviousApprove === 'function') {
+        window.approveChore = function(childId, choreId, day) {
+            var result = newGusChallengePreviousApprove.apply(this, arguments);
+            try {
+                if (String(day) === String(newGusChallengeToday())) {
+                    var child = Array.isArray(appData.children) ? appData.children.find(function(item) {
+                        return String(item.id) === String(childId);
+                    }) : null;
+                    if (child && String(choreId) === String((newGetGusChallenge(child.id) || {}).choreId)) {
+                        newAwardGusChallengeStar(child);
+                    }
+                }
+            } catch (e) { console.warn('Gus challenge star update failed.', e); }
+            return result;
+        };
+    }
+
+    // NEW: Re-add the isolated parent panel after every normal Parent Portal render.
+    var newGusChallengePreviousParentRender = window.renderParentPortal;
+    if (typeof newGusChallengePreviousParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newGusChallengePreviousParentRender.apply(this, arguments);
+            newRenderGusChallengeParentPanel();
+            return result;
+        };
+    }
+
+    // NEW: Re-add the isolated Kids View indicator after every normal Kids Portal render.
+    var newGusChallengePreviousKidsRender = window.renderKidsPortal;
+    if (typeof newGusChallengePreviousKidsRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newGusChallengePreviousKidsRender.apply(this, arguments);
+            newRenderGusChallengeKidIndicator();
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for optional future parent controls/testing.
+    window.petpalSetGusChallenge = newSetGusChallenge;
+    window.petpalClearGusChallenge = newClearGusChallenge;
+    window.petpalGetGusChallenge = newGetGusChallenge;
+
+    // NEW: Initialize both isolated views without changing the app's startup logic.
+    document.addEventListener('DOMContentLoaded', function() {
+        newRenderGusChallengeParentPanel();
+        newRenderGusChallengeKidIndicator();
+    });
+})();
+</script>
+
+<!-- NEW: ISOLATED GUS'S CHALLENGE KIDS VIEW FEATURE PANEL -->
+<script>
+(function () {
+    'use strict';
+
+    // NEW: Build a dedicated, attention-grabbing Kids View section above the normal chore list.
+    function newRenderGusChallengeKidsSection() {
+        if (typeof appData === 'undefined' || appData.isParentMode) return;
+
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var list = document.getElementById('kidsChoreList');
+        if (!child || !list) return;
+
+        var existing = document.getElementById('newGusChallengeKidsSection');
+        if (existing) existing.remove();
+
+        // NEW: Restore any challenge card that was hidden by the previous render.
+        list.querySelectorAll('.new-gus-challenge-original-card').forEach(function (card) {
+            card.classList.remove('new-gus-challenge-original-card');
+            card.style.display = '';
+        });
+
+        var challenge = typeof newGetGusChallenge === 'function' ? newGetGusChallenge(child.id) : null;
+        if (!challenge || newGusChallengeToday() !== currentKidsDayFilter) return;
+
+        var challengeChore = child.chores.find(function (chore) {
+            return String(chore.id) === String(challenge.choreId) && chore.days && chore.days.includes(currentKidsDayFilter);
+        });
+        if (!challengeChore) return;
+
+        // NEW: Determine the same status used by the existing chore system.
+        if (typeof ensureChoreStatusByDay === 'function') ensureChoreStatusByDay(challengeChore);
+        var status = challengeChore.statusByDay[currentKidsDayFilter] || 'open';
+        var statusContent = '';
+
+        if (status === 'completed' || challenge.completed) {
+            statusContent = '<span class="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Challenge Complete! ⭐</span>';
+        } else if (status === 'pending') {
+            statusContent = '<span class="px-4 py-2 bg-amber-100 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1"><i class="fa-solid fa-clock"></i> Pending Review</span>';
+        } else {
+            // NEW: Use the existing chore completion function unchanged.
+            statusContent = '<button onclick="completeChoreByKid(\'' + newGusChallengeEscape(challengeChore.id) + '\', \'' + newGusChallengeEscape(currentKidsDayFilter) + '\')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 active:scale-95 transition-all">Do Challenge! <i class="fa-solid fa-paw ml-1"></i></button>';
+        }
+
+        var section = document.createElement('div');
+        section.id = 'newGusChallengeKidsSection';
+        section.className = 'mb-4';
+        section.innerHTML =
+            '<div class="rounded-3xl p-5 border-2 border-amber-200 bg-gradient-to-r from-amber-50 via-white to-indigo-50 shadow-md relative overflow-hidden">' +
+                '<div class="absolute -right-4 -top-5 text-6xl opacity-10">⭐</div>' +
+                '<div class="flex items-center justify-between gap-3 mb-3 relative">' +
+                    '<div>' +
+                        '<div class="text-[10px] font-black tracking-widest uppercase text-amber-600">🐾 Gus\'s Special Mission</div>' +
+                        '<h3 class="font-black text-slate-800 text-lg mt-0.5">Gus\'s Challenge of the Day ⭐</h3>' +
+                        '<p class="text-xs text-slate-600 mt-1">Complete this job today and earn an extra <strong>Gus Star ⭐</strong>!</p>' +
+                    '</div>' +
+                    '<div class="text-3xl shrink-0">🐾⭐</div>' +
+                '</div>' +
+                '<div class="bg-white/90 rounded-2xl border border-amber-100 p-4 flex items-center justify-between gap-3 relative">' +
+                    '<div class="flex items-center gap-3 min-w-0">' +
+                        '<div class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-lg font-bold shrink-0"><i class="fa-solid fa-star"></i></div>' +
+                        '<div class="min-w-0">' +
+                            '<h4 class="font-black text-slate-800 text-sm truncate">' + newGusChallengeEscape(challengeChore.title) + '</h4>' +
+                            (challengeChore.description ? '<p class="text-xs text-slate-500 mt-0.5">' + newGusChallengeEscape(challengeChore.description) + '</p>' : '') +
+                            '<div class="flex items-center gap-2 mt-1 flex-wrap">' +
+                                '<span class="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">+£' + Number(challengeChore.reward || 0).toFixed(2) + '</span>' +
+                                '<span class="text-[10px] font-extrabold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-md">+' + (challengeChore.gusPointsReward || 10) + ' 🐾</span>' +
+                                '<span class="text-[10px] font-extrabold text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded-md">+' + (challengeChore.screenTimeReward || 15) + 'm 🎮</span>' +
+                                '<span class="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">+1 Gus Star ⭐</span>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="shrink-0">' + statusContent + '</div>' +
+                '</div>' +
+            '</div>';
+
+        // NEW: Place the dedicated challenge section immediately above the normal chores.
+        list.parentNode.insertBefore(section, list);
+
+        // NEW: Keep the original chore card in the existing list for all underlying sorting/locking logic,
+        // but hide its duplicate visual presentation so the child sees the chore only in the dedicated section.
+        var cards = Array.prototype.slice.call(list.children);
+        cards.forEach(function (card) {
+            var buttons = card.querySelectorAll('button[onclick]');
+            for (var i = 0; i < buttons.length; i++) {
+                var onclick = buttons[i].getAttribute('onclick') || '';
+                var match = onclick.match(/completeChoreByKid\s*\(\s*['"]([^'"]+)['"]/);
+                if (match && String(match[1]) === String(challenge.choreId)) {
+                    card.classList.add('new-gus-challenge-original-card');
+                    card.style.display = 'none';
+                    break;
+                }
+            }
+        });
+    }
+
+    // NEW: Rebuild the dedicated section after every normal Kids View render.
+    var newGusChallengeSectionPreviousKidsRender = window.renderKidsPortal;
+    if (typeof newGusChallengeSectionPreviousKidsRender === 'function') {
+        window.renderKidsPortal = function () {
+            var result = newGusChallengeSectionPreviousKidsRender.apply(this, arguments);
+            newRenderGusChallengeKidsSection();
+            return result;
+        };
+    }
+
+    // NEW: Initialize the isolated Kids View section without changing startup logic.
+    document.addEventListener('DOMContentLoaded', function () {
+        newRenderGusChallengeKidsSection();
+    });
+})();
+</script>
