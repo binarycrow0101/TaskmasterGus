@@ -5757,3 +5757,351 @@
     });
 })();
 </script>
+<!-- NEW: ISOLATED PAY ME / WEEKLY KID PAYMENT REQUEST SYSTEM -->
+<script>
+(function () {
+    'use strict';
+
+    // NEW: This module keeps payment requests separate from the existing balance,
+    // chore rewards, approval logic, and weekly report logic.
+    var NEW_PAYME_SETTINGS_KEY = 'petpalPayMeSettings';
+    var NEW_PAYME_REQUESTS_KEY = 'petpalPayMeRequests';
+    var NEW_PAYME_DEFAULT_DAY = 'Sun';
+
+    // NEW: Read the parent-selected payment day, defaulting to Sunday.
+    function newPayMeGetPaymentDay() {
+        var day = NEW_PAYME_DEFAULT_DAY;
+        try {
+            var saved = JSON.parse(localStorage.getItem(NEW_PAYME_SETTINGS_KEY) || '{}');
+            if (saved && DAYS_OF_WEEK.indexOf(saved.paymentDay) !== -1) day = saved.paymentDay;
+        } catch (e) {}
+        return day;
+    }
+
+    // NEW: Save the parent-selected payment day without touching appData.
+    function newPayMeSetPaymentDay(day) {
+        if (DAYS_OF_WEEK.indexOf(day) === -1) return;
+        try { localStorage.setItem(NEW_PAYME_SETTINGS_KEY, JSON.stringify({ paymentDay: day })); } catch (e) {}
+    }
+
+    // NEW: Monday-starting week key, matching the existing weekly report convention.
+    function newPayMeWeekKey(date) {
+        var d = new Date(date || new Date());
+        var day = d.getDay();
+        var diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // NEW: Return the seven day names in the current Monday-starting week.
+    function newPayMeWeekDayNames(date) {
+        var d = new Date(date || new Date());
+        var day = d.getDay();
+        var diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        var names = [];
+        for (var i = 0; i < 7; i++) {
+            var copy = new Date(d);
+            copy.setDate(d.getDate() + i);
+            names.push(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][copy.getDay()]);
+        }
+        return names;
+    }
+
+    // NEW: Get weekly chore earnings plus the payment-day completion count.
+    function newPayMeGetWeeklyChoreSummary(child) {
+        var days = newPayMeWeekDayNames(new Date());
+        var rows = [];
+        var total = 0;
+        var completeCount = 0;
+        var paymentDay = newPayMeGetPaymentDay();
+        var paymentDayCompleteCount = 0;
+
+        (child && Array.isArray(child.chores) ? child.chores : []).forEach(function (chore) {
+            if (!chore || !Array.isArray(chore.days)) return;
+            if (typeof ensureChoreStatusByDay === 'function') ensureChoreStatusByDay(chore);
+
+            days.forEach(function (day) {
+                if (!chore.days.includes(day)) return;
+                total++;
+                var status = chore.statusByDay[day] || 'open';
+                var approved = status === 'completed';
+                if (approved) {
+                    completeCount++;
+                    if (day === paymentDay) paymentDayCompleteCount++;
+                }
+                rows.push({
+                    choreId: chore.id,
+                    title: chore.title || 'Chore',
+                    day: day,
+                    status: status,
+                    approved: approved,
+                    reward: Number(chore.reward) || 0
+                });
+            });
+        });
+
+        var money = rows.reduce(function (sum, row) {
+            return sum + (row.approved ? row.reward : 0);
+        }, 0);
+
+        return {
+            rows: rows,
+            total: total,
+            completeCount: completeCount,
+            allComplete: total > 0 && completeCount === total,
+            paymentDayCompleteCount: paymentDayCompleteCount,
+            payMeEligible: paymentDayCompleteCount >= 4,
+            money: money
+        };
+    }
+
+    // NEW: Read payment requests independently from the main application state.
+    function newPayMeGetRequests() {
+        try {
+            var parsed = JSON.parse(localStorage.getItem(NEW_PAYME_REQUESTS_KEY) || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // NEW: Persist payment requests.
+    function newPayMeSaveRequests(requests) {
+        try { localStorage.setItem(NEW_PAYME_REQUESTS_KEY, JSON.stringify(requests.slice(-100))); } catch (e) {}
+    }
+
+    // NEW: Find the current child's request for the current week.
+    function newPayMeGetCurrentRequest(childId) {
+        var week = newPayMeWeekKey();
+        return newPayMeGetRequests().find(function (request) {
+            return String(request.childId) === String(childId) && request.weekKey === week;
+        }) || null;
+    }
+
+    // NEW: Create a payment request after at least 4 chores are approved on the payment day.
+    function newPayMeRequestPayment(child) {
+        if (!child) return;
+        var day = newPayMeGetPaymentDay();
+        if (getCurrentDayAbbrev() !== day) {
+            alert('You can ask to be paid on ' + day + '.');
+            return;
+        }
+
+        var summary = newPayMeGetWeeklyChoreSummary(child);
+        if (!summary.payMeEligible) {
+            alert('Complete at least 4 approved chores today, then you can press Pay Me!');
+            return;
+        }
+
+        var existing = newPayMeGetCurrentRequest(child.id);
+        if (existing) {
+            alert(existing.paid ? 'Your payment has already been marked as paid.' : 'Your Pay Me! request is already with your parent.');
+            return;
+        }
+
+        var requests = newPayMeGetRequests();
+        requests.push({
+            id: 'pay_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            childId: child.id,
+            childName: child.name,
+            weekKey: newPayMeWeekKey(),
+            amount: summary.money,
+            requestedAt: new Date().toISOString(),
+            paid: false,
+            paidAt: null
+        });
+        newPayMeSaveRequests(requests);
+        alert('Pay Me! request sent to your parent. 💷');
+        if (typeof renderKidsPortal === 'function') renderKidsPortal();
+        if (typeof renderParentPortal === 'function' && appData.isParentMode) renderParentPortal();
+    }
+
+    // NEW: Render the bright Kids View button only on the configured payment day.
+    function newPayMeRenderKidsButton() {
+        if (typeof appData === 'undefined' || appData.isParentMode) return;
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        var list = document.getElementById('kidsChoreList');
+        if (!child || !list) return;
+
+        var existing = document.getElementById('newPayMeKidsPanel');
+        if (existing) existing.remove();
+
+        if (getCurrentDayAbbrev() !== newPayMeGetPaymentDay()) return;
+
+        var summary = newPayMeGetWeeklyChoreSummary(child);
+        var request = newPayMeGetCurrentRequest(child.id);
+        var panel = document.createElement('div');
+        panel.id = 'newPayMeKidsPanel';
+        panel.className = 'mb-4';
+
+        var content = '';
+        if (request && request.paid) {
+            content = '<div class="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-center">' +
+                '<div class="text-lg font-black text-emerald-700">💷 Paid!</div>' +
+                '<div class="text-xs font-bold text-emerald-600 mt-1">Your parent has marked £' + Number(request.amount || 0).toFixed(2) + ' as paid.</div>' +
+                '</div>';
+        } else if (request) {
+            content = '<div class="rounded-2xl bg-amber-50 border-2 border-amber-300 p-4 text-center shadow-sm">' +
+                '<div class="text-xl font-black text-amber-800">💷 Pay Me! requested</div>' +
+                '<div class="text-xs font-bold text-amber-700 mt-1">Your parent has been notified. £' + Number(request.amount || 0).toFixed(2) + ' requested.</div>' +
+                '</div>';
+        } else if (summary.payMeEligible) {
+            content = '<button type="button" id="newPayMeButton" class="w-full py-4 px-5 bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 hover:from-amber-500 hover:via-yellow-500 hover:to-orange-500 text-slate-900 rounded-2xl text-base font-black shadow-lg active:scale-[0.98] transition-all">' +
+                '💷 PAY ME! <span class="text-xs font-extrabold ml-1">£' + summary.money.toFixed(2) + '</span></button>' +
+                '<p class="text-[10px] text-center font-bold text-slate-500 mt-2">You completed at least 4 chores today — ask to be paid!</p>';
+        } else {
+            content = '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-4 text-center">' +
+                '<div class="text-sm font-black text-slate-700">💷 Pay Me! is waiting</div>' +
+                '<div class="text-xs font-bold text-slate-500 mt-1">Complete 4 approved chores today to unlock your payment request.</div>' +
+                '<div class="text-[10px] font-extrabold text-indigo-600 mt-2">' + summary.paymentDayCompleteCount + ' of 4 chores completed today</div>' +
+                '</div>';
+        }
+
+        panel.innerHTML = '<div class="rounded-3xl border-2 border-amber-300 bg-gradient-to-r from-yellow-50 via-white to-amber-50 p-4 shadow-md">' +
+            '<div class="flex items-center justify-between gap-3 mb-3">' +
+                '<div><div class="text-[10px] font-black uppercase tracking-widest text-amber-600">Weekly Pay Day</div><h3 class="text-lg font-black text-slate-800">💷 Pay Me!</h3></div>' +
+                '<div class="text-3xl">💷⭐</div>' +
+            '</div>' + content +
+            '</div>';
+
+        list.parentNode.insertBefore(panel, list);
+        var button = document.getElementById('newPayMeButton');
+        if (button) button.addEventListener('click', function () { newPayMeRequestPayment(child); });
+    }
+
+    // NEW: Add a dedicated parent notification panel above the existing approval queue.
+    function newPayMeRenderParentPanel() {
+        if (typeof appData === 'undefined' || !appData.isParentMode) return;
+        var approvals = document.getElementById('parentTabApprovals');
+        if (!approvals || !Array.isArray(appData.children)) return;
+
+        var panel = document.getElementById('newPayMeParentPanel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'newPayMeParentPanel';
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            approvals.insertBefore(panel, approvals.firstElementChild);
+        }
+
+        var requests = newPayMeGetRequests();
+        var outstanding = requests.filter(function (r) { return r && !r.paid; });
+        var today = getCurrentDayAbbrev();
+        var day = newPayMeGetPaymentDay();
+        var html = '<div class="flex items-center justify-between gap-3 mb-4">' +
+            '<div><h3 class="font-black text-slate-800 text-sm flex items-center gap-2">💷 Pay Me! Requests</h3>' +
+            '<p class="text-xs text-slate-500 mt-1">Children can request payment when all weekly chores are approved.</p></div>' +
+            '<span class="text-[10px] font-extrabold ' + (outstanding.length ? 'text-amber-700 bg-amber-100' : 'text-emerald-700 bg-emerald-100') + ' px-2 py-1 rounded-lg">' + outstanding.length + ' waiting</span>' +
+            '</div>';
+
+        if (!outstanding.length) {
+            html += '<div class="p-4 rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-center text-xs font-bold text-slate-500">No unpaid Pay Me! requests right now.</div>';
+        } else {
+            outstanding.forEach(function (request) {
+                html += '<div class="border border-amber-200 bg-amber-50 rounded-2xl p-4 mb-3">' +
+                    '<div class="flex items-center justify-between gap-3">' +
+                        '<div><div class="font-black text-slate-800 text-sm">' + newPayMeEscape(request.childName) + '</div>' +
+                        '<div class="text-xs font-bold text-slate-500 mt-0.5">Week starting ' + newPayMeEscape(request.weekKey) + '</div></div>' +
+                        '<div class="text-lg font-black text-emerald-700">£' + Number(request.amount || 0).toFixed(2) + '</div>' +
+                    '</div>' +
+                    '<div class="flex flex-wrap gap-2 mt-3">' +
+                        '<button type="button" data-payme-paid="' + newPayMeEscape(request.id) + '" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl">Mark Paid ✓</button>' +
+                        '<button type="button" data-payme-email="' + newPayMeEscape(request.id) + '" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl">Email Me</button>' +
+                    '</div>' +
+                '</div>';
+            });
+        }
+
+        html += '<div class="mt-4 pt-4 border-t border-slate-100">' +
+            '<div class="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Payment Day</div>' +
+            '<div class="flex items-center gap-2">' +
+                '<select id="newPayMeDaySelect" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white">' +
+                    DAYS_OF_WEEK.map(function (d) { return '<option value="' + d + '" ' + (d === day ? 'selected' : '') + '>' + d + '</option>'; }).join('') +
+                '</select>' +
+                '<button type="button" id="newPayMeDaySave" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl">Save Day</button>' +
+            '</div>' +
+            '<p class="text-[10px] text-slate-500 mt-2">Today is ' + today + '. The default payment day is Sunday.</p>' +
+            '</div>';
+
+        panel.innerHTML = html;
+
+        panel.querySelectorAll('[data-payme-paid]').forEach(function (button) {
+            button.addEventListener('click', function () { newPayMeMarkPaid(button.getAttribute('data-payme-paid')); });
+        });
+        panel.querySelectorAll('[data-payme-email]').forEach(function (button) {
+            button.addEventListener('click', function () { newPayMeEmailRequest(button.getAttribute('data-payme-email')); });
+        });
+
+        var daySelect = document.getElementById('newPayMeDaySelect');
+        var daySave = document.getElementById('newPayMeDaySave');
+        if (daySelect && daySave) daySave.addEventListener('click', function () {
+            newPayMeSetPaymentDay(daySelect.value);
+            newPayMeRenderParentPanel();
+            if (typeof renderKidsPortal === 'function' && !appData.isParentMode) renderKidsPortal();
+            alert('Pay Me! day saved as ' + daySelect.value + '.');
+        });
+    }
+
+    // NEW: Mark one payment request as paid without altering the child's existing balance/history.
+    function newPayMeMarkPaid(requestId) {
+        var requests = newPayMeGetRequests();
+        var request = requests.find(function (r) { return String(r.id) === String(requestId); });
+        if (!request || request.paid) return;
+        if (!confirm('Mark £' + Number(request.amount || 0).toFixed(2) + ' for ' + request.childName + ' as paid?')) return;
+        request.paid = true;
+        request.paidAt = new Date().toISOString();
+        newPayMeSaveRequests(requests);
+        newPayMeRenderParentPanel();
+    }
+
+    // NEW: Email one request using the same self-contained mailto approach as the existing weekly report.
+    function newPayMeEmailRequest(requestId) {
+        var request = newPayMeGetRequests().find(function (r) { return String(r.id) === String(requestId); });
+        if (!request) return;
+        var subject = 'PetPal — Payment due to ' + request.childName;
+        var body = 'PetPal Pay Me! Request\n\nChild: ' + request.childName + '\nWeek starting: ' + request.weekKey + '\nAmount to pay: £' + Number(request.amount || 0).toFixed(2) + '\n\nThis payment was requested through PetPal after the weekly chores were completed.';
+        try { window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body); } catch (e) { console.warn('Could not open payment email.', e); }
+    }
+
+    // NEW: Escape text before inserting payment request data into the isolated UI.
+    function newPayMeEscape(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
+            return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char];
+        });
+    }
+
+    // NEW: Rebuild the Kids View payment area after the existing renderer runs.
+    var newPayMePreviousKidsRender = window.renderKidsPortal;
+    if (typeof newPayMePreviousKidsRender === 'function') {
+        window.renderKidsPortal = function () {
+            var result = newPayMePreviousKidsRender.apply(this, arguments);
+            newPayMeRenderKidsButton();
+            return result;
+        };
+    }
+
+    // NEW: Rebuild the Parent Portal payment panel after the existing renderer runs.
+    var newPayMePreviousParentRender = window.renderParentPortal;
+    if (typeof newPayMePreviousParentRender === 'function') {
+        window.renderParentPortal = function () {
+            var result = newPayMePreviousParentRender.apply(this, arguments);
+            newPayMeRenderParentPanel();
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for optional future controls/testing.
+    window.petpalPayMeRequest = function () {
+        var child = typeof getActiveChild === 'function' ? getActiveChild() : null;
+        newPayMeRequestPayment(child);
+    };
+    window.petpalSetPayMeDay = newPayMeSetPaymentDay;
+    window.petpalGetPayMeDay = newPayMeGetPaymentDay;
+
+    // NEW: Initialize the isolated payment UI without changing the app's startup logic.
+    document.addEventListener('DOMContentLoaded', function () {
+        newPayMeRenderKidsButton();
+        newPayMeRenderParentPanel();
+    });
+})();
+</script>
