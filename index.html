@@ -3113,6 +3113,500 @@
 })();
 </script>
 
+<!-- NEW: ISOLATED PROFILE BACKUP / RESTORE / DIAGNOSTIC SYSTEM -->
+<script>
+(function () {
+    'use strict';
+
+    // NEW: This module is intentionally isolated. It reads/writes only through localStorage
+    // and never changes the existing chore, reward, approval, balance, or rendering functions.
+    var NEW_PROFILE_BACKUP_VERSION = 1;
+    var NEW_PROFILE_BACKUP_PANEL_ID = 'newProfileBackupPanel';
+    var NEW_PROFILE_BACKUP_FILE_INPUT_ID = 'newProfileBackupFileInput';
+    var NEW_PROFILE_BACKUP_PROFILE_KEY_LIST = [
+        'gusChildStarStates',
+        'gusChildRewardSettings',
+        'gusChildRewardHistory',
+        'gusChildDailyStarTargets',
+        'gusTargetDailyStarHistory',
+        'gusPerChildDailyStarHistory',
+        'newGusChallengeByChild',
+        'petpalPayMeRequests'
+    ];
+
+    // NEW: Challenge key is resolved from the existing feature's actual constant when possible.
+    // The fallback is the key used by the isolated Gus Challenge feature.
+    function newProfileBackupGetChallengeKey() {
+        try {
+            if (typeof NEW_GUS_CHALLENGE_KEY !== 'undefined') return NEW_GUS_CHALLENGE_KEY;
+        } catch (e) {}
+        return 'newGusChallengeByChild';
+    }
+
+    // NEW: Safely parse JSON stored by the existing app.
+    function newProfileBackupParse(value, fallback) {
+        if (value === null || value === undefined || value === '') return fallback;
+        try { return JSON.parse(value); } catch (e) { return fallback; }
+    }
+
+    // NEW: Read the persisted PetPal app data without touching the original lexical appData variable.
+    function newProfileBackupGetAppData() {
+        var raw = localStorage.getItem('petpal_app_data');
+        var data = newProfileBackupParse(raw, null);
+        return data && Array.isArray(data.children) ? data : null;
+    }
+
+    // NEW: Return the current child profiles from the persisted source of truth.
+    function newProfileBackupGetChildren() {
+        var data = newProfileBackupGetAppData();
+        return data && Array.isArray(data.children) ? data.children : [];
+    }
+
+    // NEW: Read one stored JSON object/array without changing it.
+    function newProfileBackupReadKey(key, fallback) {
+        return newProfileBackupParse(localStorage.getItem(key), fallback);
+    }
+
+    // NEW: Read the complete profile-specific stores used by the current Gus/reward features.
+    function newProfileBackupGetProfileStores(childId) {
+        var states = newProfileBackupReadKey('gusChildStarStates', {});
+        var settings = newProfileBackupReadKey('gusChildRewardSettings', {});
+        var histories = newProfileBackupReadKey('gusChildRewardHistory', {});
+        var targets = newProfileBackupReadKey('gusChildDailyStarTargets', {});
+        var targetHistory = newProfileBackupReadKey('gusTargetDailyStarHistory', {});
+        var dailyHistory = newProfileBackupReadKey('gusPerChildDailyStarHistory', {});
+        var challenges = newProfileBackupReadKey(newProfileBackupGetChallengeKey(), {});
+        var payMeRequests = newProfileBackupReadKey('petpalPayMeRequests', []);
+
+        return {
+            starState: states && states[childId] !== undefined ? states[childId] : null,
+            rewardSettings: settings && settings[childId] !== undefined ? settings[childId] : null,
+            rewardHistory: histories && histories[childId] !== undefined ? histories[childId] : [],
+            dailyTarget: targets && targets[childId] !== undefined ? targets[childId] : null,
+            targetDailyStarHistory: targetHistory && targetHistory[childId] !== undefined ? targetHistory[childId] : {},
+            perChildDailyStarHistory: dailyHistory && dailyHistory[childId] !== undefined ? dailyHistory[childId] : {},
+            gusChallenge: challenges && challenges[childId] !== undefined ? challenges[childId] : null,
+            payMeRequests: Array.isArray(payMeRequests) ? payMeRequests.filter(function (item) {
+                return item && String(item.childId) === String(childId);
+            }) : []
+        };
+    }
+
+    // NEW: Include the legacy shared reward history in diagnostics because older records may not
+    // have child attribution. It is read-only here and is never used to overwrite a profile on import.
+    function newProfileBackupGetLegacyRewardData() {
+        return {
+            gusRewardsPool: newProfileBackupReadKey('gusRewardsPool', []),
+            gusRewardHistory: newProfileBackupReadKey('gusRewardHistory', []),
+            gusStarDailyHistory: newProfileBackupReadKey('gusStarDailyHistory', {}),
+            gusStarBank: localStorage.getItem('gusStarBank'),
+            gusRewardStage: localStorage.getItem('gusRewardStage')
+        };
+    }
+
+    // NEW: Return the complete family backup. This is suitable for moving PetPal to another device.
+    function newProfileBackupBuildFamilyBackup() {
+        var appData = newProfileBackupGetAppData();
+        if (!appData) throw new Error('PetPal data could not be found. Please open PetPal and try again.');
+
+        var storage = {};
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (!key) continue;
+            if (/^(petpal|gus)/i.test(key)) storage[key] = localStorage.getItem(key);
+        }
+
+        return {
+            backupType: 'PetPal Family Backup',
+            backupVersion: NEW_PROFILE_BACKUP_VERSION,
+            exportedAt: new Date().toISOString(),
+            appData: appData,
+            localStorage: storage
+        };
+    }
+
+    // NEW: Return a complete backup for one child, including chores, completion history,
+    // per-child Gus/reward data, challenge data, and that child's Pay Me records.
+    function newProfileBackupBuildProfileBackup(childId) {
+        var appData = newProfileBackupGetAppData();
+        if (!appData) throw new Error('PetPal data could not be found. Please open PetPal and try again.');
+
+        var child = appData.children.find(function (item) {
+            return item && String(item.id) === String(childId);
+        });
+        if (!child) throw new Error('The selected child profile could not be found.');
+
+        return {
+            backupType: 'PetPal Profile Backup',
+            backupVersion: NEW_PROFILE_BACKUP_VERSION,
+            exportedAt: new Date().toISOString(),
+            profile: JSON.parse(JSON.stringify(child)),
+            gusAndRewardData: newProfileBackupGetProfileStores(child.id),
+            legacySharedRewardData: newProfileBackupGetLegacyRewardData(),
+            familySettings: {
+                gusRewardsPool: newProfileBackupReadKey('gusRewardsPool', []),
+                payMeSettings: newProfileBackupReadKey('petpalPayMeSettings', { paymentDay: 'Sun' })
+            }
+        };
+    }
+
+    // NEW: Diagnostic export is deliberately JSON-only and excludes the parent PIN.
+    // It includes enough raw data to inspect discrepancies without changing anything.
+    function newProfileBackupBuildDiagnostic(childId) {
+        var appData = newProfileBackupGetAppData();
+        if (!appData) throw new Error('PetPal data could not be found.');
+        var child = appData.children.find(function (item) {
+            return item && String(item.id) === String(childId);
+        });
+        if (!child) throw new Error('The selected child profile could not be found.');
+
+        var profileData = newProfileBackupGetProfileStores(child.id);
+        var approvedRows = [];
+        var approvedPence = 0;
+        var invalidRewards = [];
+        var invalidDays = [];
+        var chores = Array.isArray(child.chores) ? child.chores : [];
+
+        chores.forEach(function (chore) {
+            var rewardNumber = Number(chore && chore.reward);
+            var rewardPence = Number.isFinite(rewardNumber) ? Math.round(rewardNumber * 100) : 0;
+            if (!Number.isFinite(rewardNumber)) {
+                invalidRewards.push({ id: chore && chore.id, title: chore && chore.title, rawReward: chore && chore.reward });
+            }
+            if (chore && Array.isArray(chore.days)) {
+                chore.days.forEach(function (day) {
+                    if (!['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].includes(day)) {
+                        invalidDays.push({ id: chore.id, title: chore.title, day: day });
+                    }
+                });
+            }
+            var statusByDay = chore && chore.statusByDay && typeof chore.statusByDay === 'object' ? chore.statusByDay : {};
+            Object.keys(statusByDay).forEach(function (day) {
+                if (statusByDay[day] === 'completed') {
+                    approvedPence += rewardPence;
+                    approvedRows.push({
+                        day: day,
+                        title: chore.title || '',
+                        choreId: chore.id,
+                        rewardPence: rewardPence,
+                        reward: rewardPence / 100
+                    });
+                }
+            });
+        });
+
+        return {
+            backupType: 'PetPal Profile Diagnostic',
+            backupVersion: NEW_PROFILE_BACKUP_VERSION,
+            exportedAt: new Date().toISOString(),
+            profile: {
+                id: child.id,
+                name: child.name
+            },
+            storedValues: {
+                balance: Number(child.balance) || 0,
+                gusPoints: Number(child.gusPoints) || 0,
+                screenTimeBank: Number(child.screenTimeBank) || 0,
+                approvedStatusTotal: approvedPence / 100,
+                approvedStatusTotalPence: approvedPence,
+                balanceDifferenceFromCurrentApprovals: Math.round(((Number(child.balance) || 0) * 100)) - approvedPence
+            },
+            chores: JSON.parse(JSON.stringify(chores)),
+            approvedChoreRows: approvedRows,
+            gusAndRewardData: profileData,
+            invalidRewardEntries: invalidRewards,
+            invalidScheduledDays: invalidDays,
+            notes: [
+                'This diagnostic is read-only and does not alter PetPal data.',
+                'Approved total is based only on chore statusByDay entries that currently equal "completed".',
+                'Historical payments that are no longer represented in statusByDay cannot be reconstructed from this snapshot alone.'
+            ]
+        };
+    }
+
+    // NEW: Escape text before placing imported/user data into the new panel.
+    function newProfileBackupEscape(value) {
+        return String(value === undefined || value === null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // NEW: Trigger a JSON download without changing any existing app logic.
+    function newProfileBackupDownload(filename, data) {
+        var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(function () {
+            try { URL.revokeObjectURL(url); } catch (e) {}
+            if (link.parentNode) link.parentNode.removeChild(link);
+        }, 1000);
+    }
+
+    // NEW: Create a safe filename from a child name.
+    function newProfileBackupFilenamePart(name) {
+        return String(name || 'Profile').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Profile';
+    }
+
+    // NEW: Validate the basic backup shape before any import is allowed.
+    function newProfileBackupValidate(data) {
+        if (!data || typeof data !== 'object') return { ok: false, message: 'The file is not a valid JSON object.' };
+        if (data.backupType === 'PetPal Family Backup') {
+            if (!data.appData || !Array.isArray(data.appData.children)) return { ok: false, message: 'Family backup is missing the child profile data.' };
+            return { ok: true, type: 'family' };
+        }
+        if (data.backupType === 'PetPal Profile Backup') {
+            if (!data.profile || !data.profile.id || !Array.isArray(data.profile.chores)) return { ok: false, message: 'Profile backup is missing a profile ID or chore list.' };
+            return { ok: true, type: 'profile' };
+        }
+        return { ok: false, message: 'This does not appear to be a PetPal backup file.' };
+    }
+
+    // NEW: Import one profile while preserving all other profiles and all unrelated app data.
+    function newProfileBackupImportProfile(data) {
+        var appData = newProfileBackupGetAppData();
+        if (!appData) throw new Error('PetPal data could not be found on this device.');
+        if (!data.profile || !data.profile.id) throw new Error('The profile backup is missing its profile ID.');
+
+        var incoming = JSON.parse(JSON.stringify(data.profile));
+        var index = appData.children.findIndex(function (item) {
+            return item && String(item.id) === String(incoming.id);
+        });
+        if (index < 0) {
+            index = appData.children.findIndex(function (item) {
+                return item && String(item.name || '').trim().toLowerCase() === String(incoming.name || '').trim().toLowerCase();
+            });
+        }
+
+        if (index >= 0) {
+            // NEW: Update only the selected profile's stored object; other profiles remain untouched.
+            appData.children[index] = incoming;
+        } else {
+            // NEW: A profile backup can be moved to a device where that profile does not exist yet.
+            appData.children.push(incoming);
+        }
+
+        // NEW: Persist through the same storage key used by the existing saveData() function,
+        // then refresh the existing app through its normal loader/render path when available.
+        localStorage.setItem('petpal_app_data', JSON.stringify(appData));
+
+        var childId = incoming.id;
+        var stores = data.gusAndRewardData || {};
+
+        var states = newProfileBackupReadKey('gusChildStarStates', {});
+        if (stores.starState === null || stores.starState === undefined) delete states[childId]; else states[childId] = stores.starState;
+        localStorage.setItem('gusChildStarStates', JSON.stringify(states));
+
+        var settings = newProfileBackupReadKey('gusChildRewardSettings', {});
+        if (stores.rewardSettings === null || stores.rewardSettings === undefined) delete settings[childId]; else settings[childId] = stores.rewardSettings;
+        localStorage.setItem('gusChildRewardSettings', JSON.stringify(settings));
+
+        var histories = newProfileBackupReadKey('gusChildRewardHistory', {});
+        histories[childId] = Array.isArray(stores.rewardHistory) ? stores.rewardHistory : [];
+        localStorage.setItem('gusChildRewardHistory', JSON.stringify(histories));
+
+        var targets = newProfileBackupReadKey('gusChildDailyStarTargets', {});
+        if (stores.dailyTarget === null || stores.dailyTarget === undefined) delete targets[childId]; else targets[childId] = stores.dailyTarget;
+        localStorage.setItem('gusChildDailyStarTargets', JSON.stringify(targets));
+
+        var targetHistory = newProfileBackupReadKey('gusTargetDailyStarHistory', {});
+        targetHistory[childId] = stores.targetDailyStarHistory || {};
+        localStorage.setItem('gusTargetDailyStarHistory', JSON.stringify(targetHistory));
+
+        var dailyHistory = newProfileBackupReadKey('gusPerChildDailyStarHistory', {});
+        dailyHistory[childId] = stores.perChildDailyStarHistory || {};
+        localStorage.setItem('gusPerChildDailyStarHistory', JSON.stringify(dailyHistory));
+
+        var challengeKey = newProfileBackupGetChallengeKey();
+        var challenges = newProfileBackupReadKey(challengeKey, {});
+        if (stores.gusChallenge === null || stores.gusChallenge === undefined) delete challenges[childId]; else challenges[childId] = stores.gusChallenge;
+        localStorage.setItem(challengeKey, JSON.stringify(challenges));
+
+        var requests = newProfileBackupReadKey('petpalPayMeRequests', []);
+        requests = Array.isArray(requests) ? requests.filter(function (item) {
+            return !item || String(item.childId) !== String(childId);
+        }) : [];
+        if (Array.isArray(stores.payMeRequests)) requests = requests.concat(stores.payMeRequests);
+        localStorage.setItem('petpalPayMeRequests', JSON.stringify(requests));
+
+        if (typeof loadData === 'function') loadData();
+        if (typeof renderApp === 'function') renderApp();
+    }
+
+    // NEW: Import a complete family backup. This replaces the persisted PetPal family dataset
+    // only after the backup has passed validation and the parent confirms.
+    function newProfileBackupImportFamily(data) {
+        if (!data.appData || !Array.isArray(data.appData.children)) throw new Error('Family backup is missing child profiles.');
+        var clonedAppData = JSON.parse(JSON.stringify(data.appData));
+        localStorage.setItem('petpal_app_data', JSON.stringify(clonedAppData));
+
+        if (data.localStorage && typeof data.localStorage === 'object') {
+            Object.keys(data.localStorage).forEach(function (key) {
+                if (!/^(petpal|gus)/i.test(key)) return;
+                var value = data.localStorage[key];
+                if (value === null || value === undefined) localStorage.removeItem(key);
+                else localStorage.setItem(key, String(value));
+            });
+        }
+
+        if (typeof loadData === 'function') loadData();
+        if (typeof renderApp === 'function') renderApp();
+    }
+
+    // NEW: Render the isolated backup panel inside the existing Settings tab without modifying
+    // any existing navigation, cards, graphics, or styling.
+    function newProfileBackupRenderPanel() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var existing = document.getElementById(NEW_PROFILE_BACKUP_PANEL_ID);
+        if (existing) existing.remove();
+
+        var children = newProfileBackupGetChildren();
+        var panel = document.createElement('div');
+        panel.id = NEW_PROFILE_BACKUP_PANEL_ID;
+        panel.className = 'mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
+        panel.innerHTML =
+            '<div class="flex items-start justify-between gap-3 flex-wrap">' +
+                '<div>' +
+                    '<div class="text-[10px] font-black tracking-widest uppercase text-indigo-600">Profile Data &amp; Backup</div>' +
+                    '<h3 class="text-lg font-black text-slate-800 mt-1">Save, move or inspect PetPal data</h3>' +
+                    '<p class="text-xs text-slate-500 mt-1 max-w-2xl">Export complete profiles for safekeeping or moving to another device, or export a diagnostic when something looks wrong.</p>' +
+                '</div>' +
+                '<button type="button" id="newProfileBackupFamilyExport" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl">Export All Profiles</button>' +
+            '</div>' +
+            '<div class="mt-4 grid gap-3 md:grid-cols-2">' +
+                '<div class="rounded-xl border border-slate-100 bg-slate-50 p-3">' +
+                    '<div class="text-xs font-black text-slate-700">Individual profile</div>' +
+                    '<div class="text-[11px] text-slate-500 mt-1">Includes chores, completion history, balances, Gus Stars, Gus reward history, daily Gus data, Challenge and Pay Me records.</div>' +
+                    '<div class="flex gap-2 mt-3 flex-wrap">' +
+                        '<select id="newProfileBackupChildSelect" class="flex-1 min-w-[150px] px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white"></select>' +
+                        '<button type="button" id="newProfileBackupProfileExport" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl">Export Profile</button>' +
+                        '<button type="button" id="newProfileBackupDiagnosticExport" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl">Export Diagnostic</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="rounded-xl border border-slate-100 bg-slate-50 p-3">' +
+                    '<div class="text-xs font-black text-slate-700">Restore / inspect</div>' +
+                    '<div class="text-[11px] text-slate-500 mt-1">Choose a PetPal JSON backup from Files/iCloud Drive. The file is validated before any data is changed.</div>' +
+                    '<button type="button" id="newProfileBackupImportButton" class="mt-3 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl">Import PetPal Backup</button>' +
+                    '<input id="' + NEW_PROFILE_BACKUP_FILE_INPUT_ID + '" type="file" accept="application/json,.json" class="hidden">' +
+                '</div>' +
+            '</div>' +
+            '<div class="mt-3 text-[10px] text-slate-400">Tip: keep a dated Family Backup in Files/iCloud Drive before making major changes.</div>';
+
+        host.insertBefore(panel, host.firstChild);
+
+        var select = document.getElementById('newProfileBackupChildSelect');
+        children.forEach(function (child) {
+            var option = document.createElement('option');
+            option.value = child.id;
+            option.textContent = child.name || 'Unnamed profile';
+            select.appendChild(option);
+        });
+
+        var familyExport = document.getElementById('newProfileBackupFamilyExport');
+        if (familyExport) familyExport.addEventListener('click', function () {
+            try {
+                var data = newProfileBackupBuildFamilyBackup();
+                newProfileBackupDownload('PetPal_All_Profiles_Backup_' + new Date().toISOString().slice(0,10) + '.json', data);
+            } catch (e) { alert(e.message || 'Could not export the PetPal family backup.'); }
+        });
+
+        var profileExport = document.getElementById('newProfileBackupProfileExport');
+        if (profileExport) profileExport.addEventListener('click', function () {
+            try {
+                if (!select.value) throw new Error('Please select a profile first.');
+                var data = newProfileBackupBuildProfileBackup(select.value);
+                newProfileBackupDownload('PetPal_' + newProfileBackupFilenamePart(data.profile.name) + '_Profile_Backup_' + new Date().toISOString().slice(0,10) + '.json', data);
+            } catch (e) { alert(e.message || 'Could not export the profile backup.'); }
+        });
+
+        var diagnosticExport = document.getElementById('newProfileBackupDiagnosticExport');
+        if (diagnosticExport) diagnosticExport.addEventListener('click', function () {
+            try {
+                if (!select.value) throw new Error('Please select a profile first.');
+                var data = newProfileBackupBuildDiagnostic(select.value);
+                newProfileBackupDownload('PetPal_' + newProfileBackupFilenamePart(data.profile.name) + '_Diagnostic_' + new Date().toISOString().slice(0,10) + '.json', data);
+            } catch (e) { alert(e.message || 'Could not export the diagnostic.'); }
+        });
+
+        var importButton = document.getElementById('newProfileBackupImportButton');
+        var fileInput = document.getElementById(NEW_PROFILE_BACKUP_FILE_INPUT_ID);
+        if (importButton && fileInput) importButton.addEventListener('click', function () { fileInput.click(); });
+        if (fileInput) fileInput.addEventListener('change', function () {
+            var file = fileInput.files && fileInput.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function () {
+                try {
+                    var data = newProfileBackupParse(reader.result, null);
+                    var validation = newProfileBackupValidate(data);
+                    if (!validation.ok) throw new Error(validation.message);
+
+                    var summary;
+                    if (validation.type === 'profile') {
+                        summary = 'Profile: ' + (data.profile.name || 'Unnamed') + '\nChores: ' + data.profile.chores.length + '\n\nImport this profile?';
+                    } else {
+                        summary = 'Profiles: ' + data.appData.children.length + '\n\nThis will restore the family backup on this device. Continue?';
+                    }
+                    if (!confirm(summary)) return;
+
+                    if (validation.type === 'profile') newProfileBackupImportProfile(data);
+                    else newProfileBackupImportFamily(data);
+
+                    alert('PetPal backup imported successfully.');
+                    setTimeout(newProfileBackupRenderPanel, 0);
+                } catch (e) {
+                    alert(e.message || 'The PetPal backup could not be imported. No changes were made.');
+                } finally {
+                    fileInput.value = '';
+                }
+            };
+            reader.onerror = function () {
+                alert('The selected backup file could not be read.');
+                fileInput.value = '';
+            };
+            reader.readAsText(file);
+        });
+    }
+
+    // NEW: Refresh only the isolated backup panel after existing Parent Portal renders.
+    var newProfileBackupPreviousParentRender = window.renderParentPortal;
+    if (typeof newProfileBackupPreviousParentRender === 'function') {
+        window.renderParentPortal = function () {
+            var result = newProfileBackupPreviousParentRender.apply(this, arguments);
+            setTimeout(newProfileBackupRenderPanel, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for optional future diagnostics/testing.
+    window.petpalExportProfileBackup = function (childId) {
+        var data = newProfileBackupBuildProfileBackup(childId);
+        newProfileBackupDownload('PetPal_Profile_Backup_' + newProfileBackupFilenamePart(data.profile.name) + '.json', data);
+    };
+    window.petpalExportPetPalFamilyBackup = function () {
+        var data = newProfileBackupBuildFamilyBackup();
+        newProfileBackupDownload('PetPal_All_Profiles_Backup_' + new Date().toISOString().slice(0,10) + '.json', data);
+    };
+    window.petpalExportProfileDiagnostic = function (childId) {
+        var data = newProfileBackupBuildDiagnostic(childId);
+        newProfileBackupDownload('PetPal_Profile_Diagnostic_' + newProfileBackupFilenamePart(data.profile.name) + '.json', data);
+    };
+
+    // NEW: Initialize the isolated panel without changing the existing startup sequence.
+    document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(newProfileBackupRenderPanel, 0);
+    });
+})();
+</script>
 </body>
 
 
@@ -6102,6 +6596,175 @@
     document.addEventListener('DOMContentLoaded', function () {
         newPayMeRenderKidsButton();
         newPayMeRenderParentPanel();
+    });
+})();
+</script>
+
+<!-- NEW: ISOLATED POCKET MONEY AUDIT / DATA CHECK SYSTEM -->
+<script>
+(function() {
+    // NEW: This audit is read-only. It does not modify chores, balances, approvals, or payment requests.
+    var NEW_POCKET_AUDIT_ID = 'newPocketMoneyAuditPanel';
+
+    // NEW: Convert money to integer pence so the audit avoids floating-point penny rounding issues.
+    function newPocketAuditPence(value) {
+        var number = Number(value);
+        if (!Number.isFinite(number)) return 0;
+        return Math.round(number * 100);
+    }
+
+    // NEW: Format integer pence consistently as pounds and pence.
+    function newPocketAuditMoney(pence) {
+        return '£' + (Math.round(Number(pence) || 0) / 100).toFixed(2);
+    }
+
+    // NEW: Safely read a child's currently stored chore/approval data without changing it.
+    function newPocketAuditChild(child) {
+        var approvedRows = [];
+        var definitionWarnings = [];
+        var expectedPence = 0;
+        var approvedCount = 0;
+
+        (child && Array.isArray(child.chores) ? child.chores : []).forEach(function(chore) {
+            if (!chore) return;
+
+            var rewardNumber = Number(chore.reward);
+            if (!Number.isFinite(rewardNumber)) {
+                definitionWarnings.push((chore.title || 'Unnamed chore') + ': reward is missing or not numeric.');
+            }
+
+            var rewardPence = newPocketAuditPence(chore.reward);
+            var statuses = chore.statusByDay && typeof chore.statusByDay === 'object' ? chore.statusByDay : {};
+
+            Object.keys(statuses).forEach(function(day) {
+                if (statuses[day] !== 'completed') return;
+                approvedCount++;
+                expectedPence += rewardPence;
+                approvedRows.push({
+                    day: day,
+                    title: chore.title || 'Unnamed chore',
+                    rewardPence: rewardPence,
+                    choreId: chore.id || '',
+                    rawReward: chore.reward
+                });
+            });
+
+            if (Array.isArray(chore.days)) {
+                chore.days.forEach(function(day) {
+                    if (DAYS_OF_WEEK.indexOf(day) === -1) {
+                        definitionWarnings.push((chore.title || 'Unnamed chore') + ': invalid scheduled day "' + day + '".');
+                    }
+                });
+            } else {
+                definitionWarnings.push((chore.title || 'Unnamed chore') + ': scheduled days are missing.');
+            }
+        });
+
+        var storedPence = newPocketAuditPence(child && child.balance);
+        var differencePence = storedPence - expectedPence;
+
+        return {
+            child: child,
+            approvedRows: approvedRows,
+            approvedCount: approvedCount,
+            expectedPence: expectedPence,
+            storedPence: storedPence,
+            differencePence: differencePence,
+            definitionWarnings: definitionWarnings
+        };
+    }
+
+    // NEW: Render a read-only audit with enough detail to identify a specific 50p discrepancy.
+    function newPocketAuditRender() {
+        if (typeof appData === 'undefined' || !Array.isArray(appData.children)) return;
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var panel = document.getElementById(NEW_POCKET_AUDIT_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_POCKET_AUDIT_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.appendChild(panel);
+        }
+
+        var audits = appData.children.map(newPocketAuditChild);
+        var html = '<div class="flex items-center justify-between gap-3 mb-2">' +
+            '<div><h3 class="font-black text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-magnifying-glass-chart text-indigo-600"></i> Pocket Money Audit</h3>' +
+            '<p class="text-xs text-slate-500 mt-1">Read-only check of stored chore rewards, approved chores and each child\'s current balance.</p></div>' +
+            '<button type="button" id="newPocketAuditRefresh" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl">Refresh</button>' +
+            '</div>';
+
+        html += '<div class="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">Important: this compares the approvals still present in the saved chore data with the current stored balance. It does not rewrite anything.</div>';
+
+        audits.forEach(function(audit) {
+            var child = audit.child;
+            var diffClass = audit.differencePence === 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200';
+            var diffLabel = audit.differencePence === 0 ? 'MATCH' : (audit.differencePence > 0 ? 'BALANCE ABOVE APPROVED TOTAL' : 'BALANCE BELOW APPROVED TOTAL');
+
+            html += '<div class="border border-slate-200 rounded-2xl p-4 mb-4">' +
+                '<div class="flex items-center justify-between gap-3 mb-3">' +
+                    '<div><div class="font-black text-slate-800">' + newPocketAuditEscape(child.name) + '</div>' +
+                    '<div class="text-[10px] font-bold text-slate-500 mt-0.5">' + audit.approvedCount + ' approved chore entries currently stored</div></div>' +
+                    '<span class="text-[10px] font-black px-2 py-1 rounded-lg border ' + diffClass + '">' + diffLabel + '</span>' +
+                '</div>' +
+                '<div class="grid grid-cols-3 gap-2 mb-3">' +
+                    '<div class="rounded-xl bg-slate-50 p-3 text-center"><div class="text-[10px] font-bold text-slate-500">Stored balance</div><div class="font-black text-slate-800">' + newPocketAuditMoney(audit.storedPence) + '</div></div>' +
+                    '<div class="rounded-xl bg-slate-50 p-3 text-center"><div class="text-[10px] font-bold text-slate-500">Approved total</div><div class="font-black text-slate-800">' + newPocketAuditMoney(audit.expectedPence) + '</div></div>' +
+                    '<div class="rounded-xl ' + (audit.differencePence === 0 ? 'bg-emerald-50' : 'bg-rose-50') + ' p-3 text-center"><div class="text-[10px] font-bold text-slate-500">Difference</div><div class="font-black">' + (audit.differencePence >= 0 ? '+' : '-') + newPocketAuditMoney(Math.abs(audit.differencePence)) + '</div></div>' +
+                '</div>';
+
+            if (audit.approvedRows.length) {
+                html += '<details class="mb-3"><summary class="cursor-pointer text-xs font-black text-indigo-700">Show approved chore entries</summary><div class="mt-2 space-y-1">';
+                audit.approvedRows.forEach(function(row) {
+                    html += '<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">' +
+                        '<div><span class="text-[10px] font-black text-amber-700">' + newPocketAuditEscape(row.day) + '</span> <span class="text-xs font-bold text-slate-700">' + newPocketAuditEscape(row.title) + '</span></div>' +
+                        '<span class="text-xs font-black text-emerald-700">' + newPocketAuditMoney(row.rewardPence) + '</span>' +
+                        '</div>';
+                });
+                html += '</div></details>';
+            }
+
+            if (audit.definitionWarnings.length) {
+                html += '<div class="rounded-xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-1">Data warnings</div>';
+                audit.definitionWarnings.forEach(function(warning) {
+                    html += '<div class="text-xs font-bold text-amber-800">• ' + newPocketAuditEscape(warning) + '</div>';
+                });
+                html += '</div>';
+            }
+
+            html += '</div>';
+        });
+
+        panel.innerHTML = html;
+        var refresh = document.getElementById('newPocketAuditRefresh');
+        if (refresh) refresh.addEventListener('click', newPocketAuditRender);
+    }
+
+    // NEW: Minimal HTML escaping for audit-only values.
+    function newPocketAuditEscape(value) {
+        return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // NEW: Expose read-only helpers for troubleshooting without changing app data.
+    window.petpalPocketMoneyAudit = function() {
+        if (typeof appData === 'undefined' || !Array.isArray(appData.children)) return [];
+        return appData.children.map(newPocketAuditChild);
+    };
+
+    // NEW: Refresh the audit whenever the existing Parent Portal is rendered.
+    var newPocketAuditOriginalRenderParent = window.renderParentPortal;
+    if (typeof newPocketAuditOriginalRenderParent === 'function') {
+        window.renderParentPortal = function() {
+            var result = newPocketAuditOriginalRenderParent.apply(this, arguments);
+            setTimeout(newPocketAuditRender, 0);
+            return result;
+        };
+    }
+
+    // NEW: Also render when the parent switches to the Settings tab.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newPocketAuditRender, 0);
     });
 })();
 </script>
