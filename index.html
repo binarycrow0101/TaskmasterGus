@@ -8136,3 +8136,186 @@
     });
 })();
 </script>
+
+<!-- NEW: ISOLATED HAT UNLOCK + KIDS CLOSET POSITION PATCH -->
+<script>
+(function newGusHatUnlockAndClosetPositionPatch() {
+    'use strict';
+
+    // NEW: Resolve the effective Hat Star requirement, including any parent override.
+    function newV35EffectiveHatRequirement(hat) {
+        if (!hat) return 0;
+        try {
+            var raw = localStorage.getItem('petpalGusHatRequirementOverrides');
+            var overrides = raw ? JSON.parse(raw) : {};
+            var custom = Number(overrides && overrides[hat.id]);
+            if (Number.isFinite(custom) && custom >= 0) return Math.floor(custom);
+        } catch (e) {}
+        var original = Number(hat.requirement);
+        return Number.isFinite(original) && original >= 0 ? Math.floor(original) : 0;
+    }
+
+    // NEW: Directly re-check the selected next hat after parent Hat Star adjustments.
+    // This is intentionally separate from the existing unlock functions so no existing
+    // function, variable, catalogue or calculation is altered.
+    function newV35TryHatUnlocks() {
+        try {
+            var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : [];
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var changed = false;
+
+            Object.keys(state).forEach(function(childId) {
+                var childState = state[childId];
+                if (!childState || !childState.nextHatId) return;
+
+                var hat = catalogue.find(function(item) { return item.id === childState.nextHatId; });
+                if (!hat) return;
+
+                var stars = Number(childState.lifetimeHatStars);
+                if (!Number.isFinite(stars)) stars = 0;
+                var requirement = newV35EffectiveHatRequirement(hat);
+                if (stars < requirement) return;
+
+                if (!Array.isArray(childState.unlockedHatIds)) childState.unlockedHatIds = [];
+                if (childState.unlockedHatIds.indexOf(hat.id) !== -1) return;
+
+                childState.unlockedHatIds.push(hat.id);
+                childState.currentHatId = hat.id;
+                childState.nextHatId = null;
+                changed = true;
+
+                try { alert('🎉 Gus unlocked the ' + hat.name + '!'); } catch (e) {}
+            });
+
+            if (changed) {
+                localStorage.setItem('petpalGusHatCollectionState', JSON.stringify(state));
+                try {
+                    if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh();
+                } catch (e) {}
+                try {
+                    if (typeof window.renderKidsPortal === 'function') window.renderKidsPortal();
+                } catch (e) {}
+                try {
+                    if (typeof window.renderParentPortal === 'function') window.renderParentPortal();
+                } catch (e) {}
+            }
+            return changed;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // NEW: Make the existing public Hat Star testing helpers immediately trigger the
+    // same unlock check after a parent adds, removes or sets Hat Stars.
+    function newV35WrapHatPointHelper(name) {
+        var original = window[name];
+        if (typeof original !== 'function') return;
+        window[name] = function() {
+            var result = original.apply(this, arguments);
+            setTimeout(newV35TryHatUnlocks, 0);
+            return result;
+        };
+    }
+
+    newV35WrapHatPointHelper('petpalSetGusHatStars');
+    newV35WrapHatPointHelper('petpalAdjustGusHatStars');
+
+    // NEW: The parent adjustment panel also calls its private setter directly. These
+    // listeners cover the visible +1, -1 and Set buttons without modifying that setter.
+    function newV35AttachHatPointTestListeners() {
+        var panel = document.getElementById('newGusHatPointPanel');
+        if (!panel || panel.getAttribute('data-v35-unlock-listeners') === 'true') return;
+        panel.setAttribute('data-v35-unlock-listeners', 'true');
+        panel.addEventListener('click', function(event) {
+            var button = event.target.closest('[data-new-gus-hat-point-plus],[data-new-gus-hat-point-minus],[data-new-gus-hat-point-save]');
+            if (!button) return;
+            setTimeout(newV35TryHatUnlocks, 0);
+        });
+    }
+
+    // NEW: Move the existing Kids Hat Closet from above the dashboard to directly
+    // underneath Gus's existing visual card. No existing card, artwork or styling is
+    // replaced; only the isolated hat panel's DOM position is changed.
+    function newV35PositionKidsHatCloset() {
+        var panel = document.getElementById('newGusHatPanel');
+        var host = document.getElementById('kidsPortalView');
+        if (!panel || !host) return;
+
+        var grid = host.querySelector('.grid.grid-cols-1.lg\\:grid-cols-12');
+        if (!grid || !grid.children.length) return;
+
+        var gusCard = grid.children[0];
+        if (!gusCard) return;
+
+        if (panel.parentElement !== gusCard) {
+            gusCard.appendChild(panel);
+        }
+
+        // NEW: Keep the existing panel readable inside Gus's card without changing
+        // its existing classes or visual design.
+        panel.style.width = '100%';
+    }
+
+    // NEW: Replace the less exciting fallback message with the child-facing question.
+    function newV35UpdateHatQuestion() {
+        var panel = document.getElementById('newGusHatPanel');
+        if (!panel) return;
+        panel.querySelectorAll('.text-xs.font-bold.text-slate-600').forEach(function(node) {
+            if (node.textContent.indexOf('Your parent will choose Gus') !== -1) {
+                node.textContent = 'What hat will Gus get next?';
+            }
+        });
+    }
+
+    // NEW: Run the isolated adjustments after the existing hat UI has rendered.
+    function newV35Refresh() {
+        newV35AttachHatPointTestListeners();
+        newV35TryHatUnlocks();
+        newV35PositionKidsHatCloset();
+        newV35UpdateHatQuestion();
+    }
+
+    // NEW: Re-apply after the existing Kids Portal render without replacing it.
+    var newV35OriginalKidsRender = window.renderKidsPortal;
+    if (typeof newV35OriginalKidsRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newV35OriginalKidsRender.apply(this, arguments);
+            setTimeout(newV35Refresh, 0);
+            return result;
+        };
+    }
+
+    // NEW: Re-apply after the existing Parent Portal render so the testing controls
+    // remain live after any parent-side refresh.
+    var newV35OriginalParentRender = window.renderParentPortal;
+    if (typeof newV35OriginalParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newV35OriginalParentRender.apply(this, arguments);
+            setTimeout(newV35Refresh, 0);
+            return result;
+        };
+    }
+
+    // NEW: Observe the isolated hat panel because the existing hat module may recreate
+    // it during a render. This keeps its requested position stable without touching the
+    // existing Gus or chore layout.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            newV35Refresh();
+            var host = document.getElementById('kidsPortalView');
+            if (host && typeof MutationObserver !== 'undefined') {
+                var observer = new MutationObserver(function() {
+                    newV35PositionKidsHatCloset();
+                    newV35UpdateHatQuestion();
+                    newV35AttachHatPointTestListeners();
+                });
+                observer.observe(host, { childList: true, subtree: true });
+            }
+        }, 0);
+    });
+
+    // NEW: Public testing helper.
+    window.petpalCheckGusHatUnlocks = newV35TryHatUnlocks;
+})();
+</script>
