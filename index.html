@@ -3696,6 +3696,164 @@
     });
 })();
 </script>
+<script>
+// NEW: ISOLATED PARENT GUS STAR ADJUSTMENT SYSTEM
+(function() {
+    var NEW_GUS_STAR_ADJUSTMENT_PANEL_ID = 'newGusStarAdjustmentPanel';
+    var NEW_GUS_STAR_STATES_KEY = 'gusChildStarStates';
+
+    // NEW: Read the existing per-child Gus Star state without changing the existing star system.
+    function newGusStarAdjustmentReadStates() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_STAR_STATES_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // NEW: Write only the existing Gus Star state storage object after a parent adjustment.
+    function newGusStarAdjustmentWriteStates(states) {
+        try {
+            localStorage.setItem(NEW_GUS_STAR_STATES_KEY, JSON.stringify(states));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // NEW: Resolve children from the existing saved PetPal data so this module does not
+    // depend on the original lexical appData variable being exposed on window.
+    function newGusStarAdjustmentGetChildren() {
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var parsed = raw ? JSON.parse(raw) : null;
+            return parsed && Array.isArray(parsed.children) ? parsed.children : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // NEW: Change the current month's Gus Star total for one child. The reward stage is
+    // intentionally left untouched so this manual adjustment cannot silently trigger or
+    // rewrite the existing reward milestone system.
+    function newGusStarAdjustmentSet(childId, value) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) return false;
+        numeric = Math.max(0, Math.floor(numeric));
+
+        var states = newGusStarAdjustmentReadStates();
+        if (!states[childId] || typeof states[childId] !== 'object') {
+            states[childId] = { totalStars: 0, stage: 0 };
+        }
+        states[childId].totalStars = numeric;
+        if (!Number.isFinite(Number(states[childId].stage))) states[childId].stage = 0;
+
+        if (!newGusStarAdjustmentWriteStates(states)) return false;
+
+        // NEW: Refresh the existing app through its own public render functions when available.
+        try {
+            if (typeof window.loadData === 'function') window.loadData();
+        } catch (e) {}
+        try {
+            if (typeof window.renderParentPortal === 'function') window.renderParentPortal();
+        } catch (e) {}
+        try {
+            if (typeof window.renderKidsPortal === 'function') window.renderKidsPortal();
+        } catch (e) {}
+        return true;
+    }
+
+    // NEW: Add or remove a single Gus Star as a parent-approved ad-hoc adjustment.
+    function newGusStarAdjustmentNudge(childId, delta) {
+        var states = newGusStarAdjustmentReadStates();
+        var current = states[childId] && Number(states[childId].totalStars);
+        if (!Number.isFinite(current)) current = 0;
+        return newGusStarAdjustmentSet(childId, current + Number(delta || 0));
+    }
+
+    // NEW: Render a separate, self-contained parent control card.
+    function newGusStarAdjustmentRender() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var children = newGusStarAdjustmentGetChildren();
+        if (!children.length) return;
+
+        var states = newGusStarAdjustmentReadStates();
+        var panel = document.getElementById(NEW_GUS_STAR_ADJUSTMENT_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_STAR_ADJUSTMENT_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstChild);
+        }
+
+        var cards = children.map(function(child) {
+            var state = states[child.id] || {};
+            var total = Number(state.totalStars);
+            if (!Number.isFinite(total)) total = 0;
+            return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2">' +
+                '<div class="flex items-center justify-between gap-3">' +
+                    '<span class="text-sm font-black text-slate-800">' + String(child.name || 'Child') + '</span>' +
+                    '<span class="text-sm font-black text-amber-700">' + total + ' ⭐</span>' +
+                '</div>' +
+                '<div class="text-[11px] text-slate-500">Current Gus Stars for this month</div>' +
+                '<div class="flex flex-wrap items-center gap-2">' +
+                    '<button type="button" data-new-gus-star-minus="' + child.id + '" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black">−1 ⭐</button>' +
+                    '<button type="button" data-new-gus-star-plus="' + child.id + '" class="px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-xs font-black text-amber-800">+1 ⭐</button>' +
+                    '<input type="number" min="0" step="1" value="' + total + '" data-new-gus-star-value="' + child.id + '" class="w-24 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" aria-label="' + String(child.name || 'Child') + ' Gus Stars">' +
+                    '<button type="button" data-new-gus-star-save="' + child.id + '" class="px-3 py-2 rounded-xl bg-slate-800 text-white text-xs font-black">Set Stars</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        panel.innerHTML = '<h3 class="font-black text-slate-800 text-sm flex items-center gap-2">⭐ Adjust Gus Stars</h3>' +
+            '<p class="text-xs text-slate-500 mt-1 mb-3">Parents can give or remove Gus Stars here as an ad-hoc adjustment. This changes the current Gus Star total only and does not spend stars or alter the existing reward stage.</p>' +
+            '<div class="space-y-3">' + cards + '</div>';
+
+        panel.querySelectorAll('[data-new-gus-star-plus]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                newGusStarAdjustmentNudge(button.getAttribute('data-new-gus-star-plus'), 1);
+            });
+        });
+        panel.querySelectorAll('[data-new-gus-star-minus]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                newGusStarAdjustmentNudge(button.getAttribute('data-new-gus-star-minus'), -1);
+            });
+        });
+        panel.querySelectorAll('[data-new-gus-star-save]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-new-gus-star-save');
+                var input = panel.querySelector('[data-new-gus-star-value="' + CSS.escape(childId) + '"]');
+                if (!input) return;
+                newGusStarAdjustmentSet(childId, input.value);
+            });
+        });
+    }
+
+    // NEW: Refresh this isolated feature whenever the existing Parent Portal is rendered.
+    var newGusStarAdjustmentOriginalParentRender = window.renderParentPortal;
+    if (typeof newGusStarAdjustmentOriginalParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newGusStarAdjustmentOriginalParentRender.apply(this, arguments);
+            setTimeout(newGusStarAdjustmentRender, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for controlled parent/admin adjustments.
+    window.petpalAdjustGusStars = newGusStarAdjustmentNudge;
+    window.petpalSetGusStars = newGusStarAdjustmentSet;
+
+    // NEW: Initial isolated render.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newGusStarAdjustmentRender, 0);
+    });
+})();
+</script>
+
 </body>
 
 
@@ -6854,6 +7012,951 @@
     // NEW: Also render when the parent switches to the Settings tab.
     document.addEventListener('DOMContentLoaded', function() {
         setTimeout(newPocketAuditRender, 0);
+    });
+})();
+</script>
+
+<!-- NEW: ISOLATED GUS HAT COLLECTION SYSTEM -->
+<script>
+(function newGusHatCollectionSystem() {
+    'use strict';
+
+    // NEW: All hat state is stored separately from the existing Gus Star system.
+    var NEW_GUS_HAT_STATE_KEY = 'petpalGusHatCollectionState';
+    var NEW_GUS_HAT_START_KEY = 'petpalGusHatCollectionStarted';
+    var NEW_GUS_HAT_PANEL_ID = 'newGusHatKidsPanel';
+    var NEW_GUS_HAT_PARENT_PANEL_ID = 'newGusHatParentPanel';
+
+    // NEW: Initial approved hat catalogue. The requirement is NEW lifetime Hat Stars,
+    // not the child's existing Gus Stars, so the feature begins at zero for everyone.
+    var NEW_GUS_HAT_CATALOGUE = [
+        { id: 'top_hat', name: 'Top Hat', emoji: '🎩', requirement: 10, type: 'Classic' },
+        { id: 'cowboy_hat', name: 'Cowboy Hat', emoji: '🤠', requirement: 20, type: 'Classic' },
+        { id: 'baseball_cap', name: 'Baseball Cap', emoji: '🧢', requirement: 35, type: 'Classic' },
+        { id: 'graduation_cap', name: 'Graduation Cap', emoji: '🎓', requirement: 50, type: 'Achievement' },
+        { id: 'wizard_hat', name: 'Wizard Hat', emoji: '🪄', requirement: 70, type: 'Fantasy' },
+        { id: 'crown', name: 'Crown', emoji: '👑', requirement: 90, type: 'Royal' },
+        { id: 'pirate_hat', name: 'Pirate Hat', emoji: '🏴‍☠️', requirement: 115, type: 'Adventure' },
+        { id: 'chef_hat', name: 'Chef Hat', emoji: '🧑‍🍳', requirement: 140, type: 'Fun' },
+        { id: 'christmas_hat', name: 'Christmas Hat', emoji: '🎅', requirement: 170, type: 'Seasonal' },
+        { id: 'halloween_hat', name: 'Halloween Hat', emoji: '🎃', requirement: 200, type: 'Seasonal' },
+        { id: 'frog_hat', name: 'Frog Hat', emoji: '🐸', requirement: 235, type: 'Silly' },
+        { id: 'duck_hat', name: 'Duck Hat', emoji: '🦆', requirement: 275, type: 'Silly' },
+        { id: 'bee_hat', name: 'Bee Hat', emoji: '🐝', requirement: 320, type: 'Silly' },
+        { id: 'space_helmet', name: 'Space Helmet', emoji: '🚀', requirement: 370, type: 'Special' },
+        { id: 'giant_crown', name: 'Giant Crown', emoji: '👑', requirement: 425, type: 'Big Achievement' }
+    ];
+
+    // NEW: SVG artwork lives here initially so no extra GitHub asset files are required.
+    // Each hat uses the same 200x200 Gus coordinate system. Positioning can be adjusted
+    // independently per hat without changing Gus's existing artwork or layout.
+    var NEW_GUS_HAT_ART = {
+        top_hat: '<g transform="translate(0 -1)"><ellipse cx="100" cy="44" rx="42" ry="6" fill="#111827"/><path d="M68 43 L72 18 Q100 12 128 18 L132 43Z" fill="#171B22"/><ellipse cx="100" cy="18" rx="28" ry="5" fill="#252A30"/><path d="M70 35 L130 35 L128 43 L72 43Z" fill="#7C2D12"/><path d="M75 34 L125 34" stroke="#F59E0B" stroke-width="2"/></g>',
+        cowboy_hat: '<g transform="translate(0 -1)"><path d="M58 45 Q70 31 100 31 Q130 31 142 45 Q128 43 118 48 Q100 54 82 48 Q72 43 58 45Z" fill="#B7793D" stroke="#7C4A24" stroke-width="3"/><path d="M74 38 Q100 25 126 38 L121 45 Q100 39 79 45Z" fill="#D59A57"/><path d="M82 38 Q100 34 118 38" fill="none" stroke="#5B351B" stroke-width="3"/></g>',
+        baseball_cap: '<g transform="translate(1 1)"><path d="M66 47 Q70 24 100 23 Q127 23 136 44 Q112 38 91 42 Q78 45 66 47Z" fill="#2563EB" stroke="#1E3A8A" stroke-width="3"/><path d="M91 42 Q112 38 143 46 Q128 53 105 50 Q96 48 91 42Z" fill="#60A5FA" stroke="#1E3A8A" stroke-width="2"/><path d="M78 34 Q99 28 121 34" fill="none" stroke="#DBEAFE" stroke-width="3" stroke-linecap="round"/></g>',
+        graduation_cap: '<g transform="translate(0 -3)"><path d="M58 37 L100 20 L142 37 L100 54Z" fill="#312E81" stroke="#1E1B4B" stroke-width="3"/><path d="M74 43 Q100 56 126 43 L123 57 Q100 67 77 57Z" fill="#4338CA"/><path d="M139 38 L139 58" stroke="#FBBF24" stroke-width="3"/><circle cx="139" cy="61" r="3" fill="#FBBF24"/><path d="M137 57 Q132 66 125 69" stroke="#FBBF24" stroke-width="3" fill="none"/></g>',
+        wizard_hat: '<g transform="translate(0 -3)"><path d="M67 49 Q82 30 100 3 Q118 30 133 49 Q110 44 100 48 Q90 44 67 49Z" fill="#5B21B6" stroke="#3B0764" stroke-width="3"/><path d="M72 43 Q100 35 128 43" fill="none" stroke="#FBBF24" stroke-width="4"/><path d="M96 23 L102 14 L107 24 L117 25 L109 32 L111 42 L101 37 L92 42 L94 31 L86 25Z" fill="#FDE68A"/></g>',
+        crown: '<g transform="translate(0 -2)"><path d="M61 47 L66 21 L83 35 L100 17 L117 35 L134 21 L139 47Z" fill="#FBBF24" stroke="#B45309" stroke-width="3"/><path d="M62 45 L138 45 L134 53 L66 53Z" fill="#F59E0B"/><circle cx="66" cy="21" r="4" fill="#EF4444"/><circle cx="100" cy="17" r="4" fill="#60A5FA"/><circle cx="134" cy="21" r="4" fill="#34D399"/></g>',
+        pirate_hat: '<g transform="translate(0 -1)"><path d="M62 46 Q75 29 100 30 Q125 29 138 46 Q123 43 100 47 Q77 43 62 46Z" fill="#111827" stroke="#030712" stroke-width="3"/><path d="M76 39 Q100 32 124 39" fill="none" stroke="#F8FAFC" stroke-width="4"/><path d="M94 33 Q100 26 106 33 L105 43 Q100 40 95 43Z" fill="#F8FAFC"/><circle cx="100" cy="35" r="5" fill="#111827"/><path d="M96 32 L104 39 M104 32 L96 39" stroke="#F8FAFC" stroke-width="2"/></g>',
+        chef_hat: '<g transform="translate(0 -2)"><path d="M68 45 Q61 35 70 28 Q70 18 82 19 Q88 8 99 18 Q108 8 116 19 Q129 16 130 29 Q140 34 132 45Z" fill="#FFFDF8" stroke="#CBD5E1" stroke-width="3"/><path d="M69 43 L132 43 L128 51 L73 51Z" fill="#E2E8F0"/><path d="M80 34 Q100 28 120 34" fill="none" stroke="#CBD5E1" stroke-width="2"/></g>',
+        christmas_hat: '<g transform="translate(0 -2)"><path d="M69 47 Q80 28 106 9 Q109 28 131 47Z" fill="#DC2626" stroke="#991B1B" stroke-width="3"/><path d="M68 46 Q100 40 132 46 L128 53 Q100 48 72 53Z" fill="#FFFDF8" stroke="#CBD5E1" stroke-width="2"/><circle cx="108" cy="9" r="6" fill="#FFFDF8"/></g>',
+        halloween_hat: '<g transform="translate(0 -2)"><path d="M64 47 L100 5 L136 47 Q119 42 100 48 Q81 42 64 47Z" fill="#7C3AED" stroke="#4C1D95" stroke-width="3"/><path d="M64 46 Q100 39 136 46 L132 53 Q100 47 68 53Z" fill="#F97316"/><path d="M100 17 L103 25 L111 25 L105 30 L108 38 L100 33 L92 38 L95 30 L89 25 L97 25Z" fill="#FDE68A"/></g>',
+        frog_hat: '<g transform="translate(0 -2)"><path d="M66 45 Q68 27 80 27 Q84 17 92 22 Q100 17 108 22 Q116 17 120 27 Q132 27 134 45Z" fill="#65A30D" stroke="#365314" stroke-width="3"/><circle cx="84" cy="25" r="7" fill="#84CC16" stroke="#365314" stroke-width="2"/><circle cx="116" cy="25" r="7" fill="#84CC16" stroke="#365314" stroke-width="2"/><circle cx="84" cy="25" r="2.5" fill="#111827"/><circle cx="116" cy="25" r="2.5" fill="#111827"/><path d="M72 42 Q100 36 128 42" fill="none" stroke="#BEF264" stroke-width="3"/></g>',
+        duck_hat: '<g transform="translate(0 -2)"><path d="M70 44 Q70 25 83 24 Q91 13 102 23 Q114 13 123 24 Q134 25 132 44Z" fill="#FACC15" stroke="#A16207" stroke-width="3"/><path d="M99 24 Q119 24 139 32 Q126 40 111 36Z" fill="#F97316" stroke="#C2410C" stroke-width="3"/><circle cx="87" cy="24" r="3" fill="#111827"/></g>',
+        bee_hat: '<g transform="translate(0 -2)"><path d="M67 45 Q71 25 83 23 Q100 14 117 23 Q130 25 133 45Z" fill="#FACC15" stroke="#A16207" stroke-width="3"/><path d="M76 25 L124 25 M70 36 L130 36" stroke="#111827" stroke-width="6"/><path d="M88 21 Q82 9 74 14 M112 21 Q120 9 128 14" stroke="#E2E8F0" stroke-width="4" fill="none" stroke-linecap="round" opacity=".9"/></g>',
+        space_helmet: '<g transform="translate(0 -1)"><ellipse cx="100" cy="38" rx="38" ry="31" fill="#E2E8F0" stroke="#64748B" stroke-width="4"/><path d="M68 37 Q100 21 132 37 L129 48 Q100 39 71 48Z" fill="#BFDBFE" stroke="#3B82F6" stroke-width="3" opacity=".95"/><circle cx="78" cy="27" r="4" fill="#F8FAFC"/><circle cx="122" cy="26" r="3" fill="#F8FAFC"/><path d="M87 12 L93 5 M113 12 L119 5" stroke="#64748B" stroke-width="3" stroke-linecap="round"/></g>',
+        giant_crown: '<g transform="translate(0 -8) scale(1.15)"><path d="M55 47 L63 14 L82 33 L100 7 L118 33 L137 14 L145 47Z" fill="#FBBF24" stroke="#92400E" stroke-width="3"/><path d="M56 45 L144 45 L138 56 L62 56Z" fill="#F59E0B"/><circle cx="63" cy="14" r="5" fill="#F43F5E"/><circle cx="100" cy="7" r="5" fill="#60A5FA"/><circle cx="137" cy="14" r="5" fill="#34D399"/></g>'
+    };
+
+    // NEW: State shape. This never replaces or modifies existing PetPal data.
+    function newGusHatReadState() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_HAT_STATE_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // NEW: Persist only the isolated hat collection state.
+    function newGusHatWriteState(state) {
+        try { localStorage.setItem(NEW_GUS_HAT_STATE_KEY, JSON.stringify(state)); } catch (e) {}
+    }
+
+    // NEW: Child profile access uses the existing public app helper when available.
+    function newGusHatActiveChild() {
+        try {
+            return typeof window.getActiveChild === 'function' ? window.getActiveChild() : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // NEW: Read the existing per-child Gus Star totals without changing them.
+    function newGusHatReadExistingStarStates() {
+        try {
+            var raw = localStorage.getItem('gusChildStarStates');
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // NEW: Ensure an isolated state record exists for a child.
+    function newGusHatEnsureChild(state, childId, childName) {
+        if (!state[childId]) {
+            state[childId] = {
+                childName: childName || 'Child',
+                lifetimeHatStars: 0,
+                unlockedHatIds: [],
+                currentHatId: null,
+                nextHatId: null,
+                lastSeenExistingStarTotal: 0,
+                startedAt: new Date().toISOString()
+            };
+        }
+        if (!Array.isArray(state[childId].unlockedHatIds)) state[childId].unlockedHatIds = [];
+        if (typeof state[childId].lifetimeHatStars !== 'number' || state[childId].lifetimeHatStars < 0) state[childId].lifetimeHatStars = 0;
+        return state[childId];
+    }
+
+    // NEW: The feature starts from zero even if existing Gus Stars are already present.
+    function newGusHatEnsureStarted() {
+        try {
+            if (!localStorage.getItem(NEW_GUS_HAT_START_KEY)) {
+                localStorage.setItem(NEW_GUS_HAT_START_KEY, new Date().toISOString());
+            }
+        } catch (e) {}
+    }
+
+    // NEW: Record only NEW Gus Stars earned after the hat system was introduced.
+    function newGusHatRecordStarDelta(childId, childName, beforeTotal, afterTotal) {
+        var before = Number(beforeTotal);
+        var after = Number(afterTotal);
+        if (!Number.isFinite(before)) before = 0;
+        if (!Number.isFinite(after)) after = 0;
+        var delta = after - before;
+        if (delta <= 0) return;
+
+        var state = newGusHatReadState();
+        var childState = newGusHatEnsureChild(state, childId, childName);
+        childState.lifetimeHatStars += delta;
+        childState.lastSeenExistingStarTotal = after;
+        newGusHatWriteState(state);
+        newGusHatRefreshAll();
+    }
+
+    // NEW: Hat artwork renderer. The group is inserted inside Gus's SVG so it follows
+    // every animation applied to #gusSvg, including the existing contextual animations.
+    function newGusHatRenderOnGus(childState) {
+        var gusSvg = document.getElementById('gusSvg');
+        if (!gusSvg) return;
+
+        var old = document.getElementById('newGusHatSvgLayer');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+
+        var hatId = childState && childState.currentHatId;
+        if (!hatId || !NEW_GUS_HAT_ART[hatId]) return;
+
+        var layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        layer.setAttribute('id', 'newGusHatSvgLayer');
+        layer.setAttribute('pointer-events', 'none');
+        layer.innerHTML = NEW_GUS_HAT_ART[hatId];
+        gusSvg.appendChild(layer);
+    }
+
+    // NEW: Get the selected child's isolated hat state.
+    function newGusHatGetActiveState() {
+        var child = newGusHatActiveChild();
+        if (!child || !child.id) return null;
+        var state = newGusHatReadState();
+        return newGusHatEnsureChild(state, child.id, child.name);
+    }
+
+    // NEW: Parent can choose which hat the child is working towards.
+    function newGusHatSetNextHat(childId, hatId) {
+        var state = newGusHatReadState();
+        var child = null;
+        try {
+            if (window.appData && Array.isArray(window.appData.children)) child = window.appData.children.find(function(c){ return c.id === childId; });
+        } catch (e) {}
+        var childState = newGusHatEnsureChild(state, childId, child ? child.name : 'Child');
+        childState.nextHatId = hatId || null;
+        newGusHatWriteState(state);
+        newGusHatRefreshAll();
+    }
+
+    // NEW: Parent can remove a selected hat without removing it from the collection.
+    function newGusHatWear(childId, hatId) {
+        var state = newGusHatReadState();
+        var childState = newGusHatEnsureChild(state, childId, 'Child');
+        if (hatId === null || hatId === '' || childState.unlockedHatIds.indexOf(hatId) !== -1) {
+            childState.currentHatId = hatId || null;
+            newGusHatWriteState(state);
+            newGusHatRefreshAll();
+        }
+    }
+
+    // NEW: Unlock a parent-selected hat when its isolated lifetime Hat Star requirement is reached.
+    function newGusHatCheckUnlock(childId) {
+        var state = newGusHatReadState();
+        var childState = state[childId];
+        if (!childState || !childState.nextHatId) return false;
+        var hat = NEW_GUS_HAT_CATALOGUE.find(function(h){ return h.id === childState.nextHatId; });
+        if (!hat) return false;
+        if (childState.lifetimeHatStars < hat.requirement) return false;
+        if (childState.unlockedHatIds.indexOf(hat.id) === -1) {
+            childState.unlockedHatIds.push(hat.id);
+            childState.currentHatId = hat.id;
+            childState.nextHatId = null;
+            newGusHatWriteState(state);
+            try { alert('🎉 Gus unlocked the ' + hat.name + '!'); } catch (e) {}
+            return true;
+        }
+        return false;
+    }
+
+    // NEW: Render the Kids View collection card without changing existing cards or styles.
+    function newGusHatRenderKidsPanel() {
+        var child = newGusHatActiveChild();
+        var host = document.getElementById('kidsPortalView');
+        if (!child || !host) return;
+
+        var state = newGusHatReadState();
+        var childState = newGusHatEnsureChild(state, child.id, child.name);
+        newGusHatCheckUnlock(child.id);
+        state = newGusHatReadState();
+        childState = newGusHatEnsureChild(state, child.id, child.name);
+
+        var panel = document.getElementById(NEW_GUS_HAT_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_HAT_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            var grid = host.querySelector('.grid.grid-cols-1.lg\\:grid-cols-12');
+            if (grid) host.insertBefore(panel, grid);
+            else host.appendChild(panel);
+        }
+
+        var next = childState.nextHatId ? NEW_GUS_HAT_CATALOGUE.find(function(h){ return h.id === childState.nextHatId; }) : null;
+        var unlocked = NEW_GUS_HAT_CATALOGUE.filter(function(h){ return childState.unlockedHatIds.indexOf(h.id) !== -1; });
+        var current = childState.currentHatId ? NEW_GUS_HAT_CATALOGUE.find(function(h){ return h.id === childState.currentHatId; }) : null;
+        var progressText = next ? childState.lifetimeHatStars + ' / ' + next.requirement + ' Hat Stars' : childState.lifetimeHatStars + ' Hat Stars earned';
+        var collectionHtml = unlocked.length ? unlocked.map(function(h){
+            var wearing = childState.currentHatId === h.id;
+            return '<button type="button" data-new-gus-hat-wear="' + h.id + '" class="px-3 py-2 rounded-xl border ' + (wearing ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50') + ' text-xs font-bold text-slate-700">' + h.emoji + ' ' + h.name + (wearing ? ' ✓' : '') + '</button>';
+        }).join('') : '<span class="text-xs text-slate-500">No hats unlocked yet — Gus is just getting started!</span>';
+
+        panel.innerHTML =
+            '<div class="flex items-center justify-between gap-3 mb-3">' +
+                '<div><h3 class="font-black text-slate-800 text-base flex items-center gap-2">🎩 Gus\'s Hat Closet</h3><p class="text-xs text-slate-500 mt-1">Collect hats as you build new Hat Stars.</p></div>' +
+                '<div class="px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-black">' + childState.lifetimeHatStars + ' 🎩</div>' +
+            '</div>' +
+            '<div class="rounded-2xl bg-indigo-50 border border-indigo-100 p-3 mb-3">' +
+                '<div class="text-[10px] font-black uppercase tracking-wider text-indigo-600">Currently Wearing</div>' +
+                '<div class="text-sm font-black text-indigo-900 mt-1">' + (current ? current.emoji + ' ' + current.name : '🐶 No hat') + '</div>' +
+            '</div>' +
+            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Your parent will choose Gus\'s next hat.</div>') +
+            '<div class="flex flex-wrap gap-2">' + collectionHtml + '</div>' +
+            (unlocked.length ? '<button type="button" data-new-gus-hat-wear="" class="mt-3 text-xs font-bold text-slate-500 hover:text-slate-800">🐶 No Hat</button>' : '');
+
+        panel.querySelectorAll('[data-new-gus-hat-wear]').forEach(function(button) {
+            button.addEventListener('click', function() { newGusHatWear(child.id, button.getAttribute('data-new-gus-hat-wear')); });
+        });
+    }
+
+    // NEW: Render parent controls inside the existing Settings tab.
+    function newGusHatRenderParentPanel() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+        var children = [];
+        try {
+            if (typeof window.getActiveChild === 'function' && window.appData && Array.isArray(window.appData.children)) children = window.appData.children;
+        } catch (e) {}
+        if (!children.length) {
+            try {
+                var stored = localStorage.getItem('petpal_app_data');
+                var parsed = stored ? JSON.parse(stored) : null;
+                if (parsed && Array.isArray(parsed.children)) children = parsed.children;
+            } catch (e) {}
+        }
+        if (!children.length) return;
+
+        var state = newGusHatReadState();
+        var panel = document.getElementById(NEW_GUS_HAT_PARENT_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_HAT_PARENT_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstChild);
+        }
+
+        var cards = children.map(function(child) {
+            var childState = newGusHatEnsureChild(state, child.id, child.name);
+            var next = childState.nextHatId ? NEW_GUS_HAT_CATALOGUE.find(function(h){ return h.id === childState.nextHatId; }) : null;
+            var current = childState.currentHatId ? NEW_GUS_HAT_CATALOGUE.find(function(h){ return h.id === childState.currentHatId; }) : null;
+            var options = '<option value="">Choose next hat...</option>' + NEW_GUS_HAT_CATALOGUE.map(function(h){ return '<option value="' + h.id + '" ' + (childState.nextHatId === h.id ? 'selected' : '') + '>' + h.emoji + ' ' + h.name + ' — ' + h.requirement + ' stars</option>'; }).join('');
+            var wearOptions = '<option value="">No hat</option>' + childState.unlockedHatIds.map(function(id){ var h = NEW_GUS_HAT_CATALOGUE.find(function(x){ return x.id === id; }); return h ? '<option value="' + h.id + '" ' + (childState.currentHatId === h.id ? 'selected' : '') + '>' + h.emoji + ' ' + h.name + '</option>' : ''; }).join('');
+            return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2">' +
+                '<div class="flex items-center justify-between"><span class="text-sm font-black text-slate-800">' + child.name + '</span><span class="text-xs font-black text-amber-700">' + childState.lifetimeHatStars + ' 🎩</span></div>' +
+                '<div class="text-[11px] text-slate-500">Current: <b>' + (current ? current.emoji + ' ' + current.name : 'No hat') + '</b>' + (next ? ' · Working towards <b>' + next.emoji + ' ' + next.name + '</b>' : '') + '</div>' +
+                '<div class="grid grid-cols-1 md:grid-cols-2 gap-2">' +
+                    '<select data-new-gus-hat-next="' + child.id + '" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">' + options + '</select>' +
+                    '<select data-new-gus-hat-wear-parent="' + child.id + '" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">' + wearOptions + '</select>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        panel.innerHTML = '<h3 class="font-black text-slate-800 text-sm flex items-center gap-2">🎩 Gus Hat Rewards</h3><p class="text-xs text-slate-500 mt-1 mb-3">Choose which hat each child is working towards. Existing Gus Stars are untouched; Hat Stars start from zero when this feature is introduced.</p><div class="space-y-3">' + cards + '</div>';
+
+        panel.querySelectorAll('[data-new-gus-hat-next]').forEach(function(select) {
+            select.addEventListener('change', function() { newGusHatSetNextHat(select.getAttribute('data-new-gus-hat-next'), select.value || null); });
+        });
+        panel.querySelectorAll('[data-new-gus-hat-wear-parent]').forEach(function(select) {
+            select.addEventListener('change', function() { newGusHatWear(select.getAttribute('data-new-gus-hat-wear-parent'), select.value || null); });
+        });
+    }
+
+    // NEW: Refresh only the isolated hat feature.
+    function newGusHatRefreshAll() {
+        newGusHatEnsureStarted();
+        var active = newGusHatActiveChild();
+        if (active) {
+            var state = newGusHatReadState();
+            var childState = newGusHatEnsureChild(state, active.id, active.name);
+            newGusHatWriteState(state);
+            newGusHatRenderOnGus(childState);
+            newGusHatRenderKidsPanel();
+        }
+        newGusHatRenderParentPanel();
+    }
+
+    // NEW: Capture existing star totals around the existing approval chain. No existing
+    // approval function is altered; this wrapper only observes its before/after result.
+    var newGusHatOriginalApproveChore = window.approveChore;
+    if (typeof newGusHatOriginalApproveChore === 'function') {
+        window.approveChore = function() {
+            var childId = arguments.length ? arguments[0] : null;
+            var beforeStates = newGusHatReadExistingStarStates();
+            var before = beforeStates[childId] && Number(beforeStates[childId].totalStars);
+            if (!Number.isFinite(before)) before = 0;
+            var result = newGusHatOriginalApproveChore.apply(this, arguments);
+            var afterStates = newGusHatReadExistingStarStates();
+            var after = afterStates[childId] && Number(afterStates[childId].totalStars);
+            if (!Number.isFinite(after)) after = before;
+            if (after > before) {
+                var childName = 'Child';
+                try {
+                    var child = window.getActiveChild && window.getActiveChild();
+                    if (child && child.id === childId) childName = child.name;
+                } catch (e) {}
+                newGusHatRecordStarDelta(childId, childName, before, after);
+            }
+            return result;
+        };
+    }
+
+    // NEW: Re-apply the hat layer after existing Gus rendering so it remains attached to Gus.
+    var newGusHatOriginalKidsRender = window.renderKidsPortal;
+    if (typeof newGusHatOriginalKidsRender === 'function') {
+        window.renderKidsPortal = function() {
+            var result = newGusHatOriginalKidsRender.apply(this, arguments);
+            setTimeout(newGusHatRefreshAll, 0);
+            return result;
+        };
+    }
+
+    var newGusHatOriginalParentRender = window.renderParentPortal;
+    if (typeof newGusHatOriginalParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newGusHatOriginalParentRender.apply(this, arguments);
+            setTimeout(newGusHatRefreshAll, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for future expansion and custom hat testing.
+    window.petpalGusHatCatalogue = NEW_GUS_HAT_CATALOGUE;
+    window.petpalGusHatSetNext = newGusHatSetNextHat;
+    window.petpalGusHatWear = newGusHatWear;
+    window.petpalGusHatRefresh = newGusHatRefreshAll;
+
+    // NEW: Initialize without changing any existing PetPal state.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newGusHatRefreshAll, 0);
+    });
+})();
+</script>
+
+
+<!-- NEW: ISOLATED PARENT GUS HAT POINT ADJUSTMENT / TEST SYSTEM -->
+<script>
+(function newGusHatPointAdjustmentSystem() {
+    'use strict';
+
+    // NEW: Reuse the existing isolated Hat Stars storage. No existing Gus Star data is changed.
+    var NEW_GUS_HAT_POINT_STATE_KEY = 'petpalGusHatCollectionState';
+    var NEW_GUS_HAT_POINT_PANEL_ID = 'newGusHatPointAdjustmentPanel';
+
+    // NEW: Read the existing Hat Stars state directly from its isolated storage.
+    function newGusHatPointReadState() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_HAT_POINT_STATE_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // NEW: Write only the existing isolated hat collection state.
+    function newGusHatPointWriteState(state) {
+        try {
+            localStorage.setItem(NEW_GUS_HAT_POINT_STATE_KEY, JSON.stringify(state));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // NEW: Resolve the existing child profiles without relying on lexical appData.
+    function newGusHatPointGetChildren() {
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var parsed = raw ? JSON.parse(raw) : null;
+            return parsed && Array.isArray(parsed.children) ? parsed.children : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // NEW: Adjust lifetime Hat Stars for testing. Hat Stars are lifetime progress, so reducing
+    // the number does not revoke hats already unlocked; it only changes the current progress.
+    function newGusHatPointSet(childId, value) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) return false;
+        numeric = Math.max(0, Math.floor(numeric));
+
+        var state = newGusHatPointReadState();
+        if (!state[childId] || typeof state[childId] !== 'object') {
+            state[childId] = {
+                childName: 'Child',
+                lifetimeHatStars: 0,
+                unlockedHatIds: [],
+                currentHatId: null,
+                nextHatId: null
+            };
+        }
+
+        var childState = state[childId];
+        if (!Array.isArray(childState.unlockedHatIds)) childState.unlockedHatIds = [];
+        if (!Object.prototype.hasOwnProperty.call(childState, 'currentHatId')) childState.currentHatId = null;
+        if (!Object.prototype.hasOwnProperty.call(childState, 'nextHatId')) childState.nextHatId = null;
+        childState.lifetimeHatStars = numeric;
+
+        if (!newGusHatPointWriteState(state)) return false;
+
+        // NEW: Run the existing unlock check immediately so setting points to a requirement
+        // can be used as a direct parent-side test of the hat system.
+        try {
+            if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh();
+        } catch (e) {}
+
+        // NEW: Refresh only the existing isolated hat UI.
+        try {
+            if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh();
+        } catch (e) {}
+        try {
+            if (typeof window.renderParentPortal === 'function') window.renderParentPortal();
+        } catch (e) {}
+        return true;
+    }
+
+    // NEW: Add or remove one Hat Star for quick testing.
+    function newGusHatPointNudge(childId, delta) {
+        var state = newGusHatPointReadState();
+        var current = state[childId] && Number(state[childId].lifetimeHatStars);
+        if (!Number.isFinite(current)) current = 0;
+        return newGusHatPointSet(childId, current + Number(delta || 0));
+    }
+
+    // NEW: Render a dedicated parent testing/adjustment card in the existing Settings tab.
+    function newGusHatPointRender() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var children = newGusHatPointGetChildren();
+        if (!children.length) return;
+
+        var state = newGusHatPointReadState();
+        var panel = document.getElementById(NEW_GUS_HAT_POINT_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_HAT_POINT_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstChild);
+        }
+
+        var cards = children.map(function(child) {
+            var childState = state[child.id] || {};
+            var total = Number(childState.lifetimeHatStars);
+            if (!Number.isFinite(total)) total = 0;
+            var nextText = childState.nextHatId ? String(childState.nextHatId).replace(/_/g, ' ') : 'No next hat selected';
+            var unlockedCount = Array.isArray(childState.unlockedHatIds) ? childState.unlockedHatIds.length : 0;
+
+            return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2">' +
+                '<div class="flex items-center justify-between gap-3">' +
+                    '<span class="text-sm font-black text-slate-800">' + String(child.name || 'Child') + '</span>' +
+                    '<span class="text-sm font-black text-amber-700">' + total + ' 🎩</span>' +
+                '</div>' +
+                '<div class="text-[11px] text-slate-500">Lifetime Hat Stars · ' + unlockedCount + ' hat(s) unlocked · Next: <b>' + nextText + '</b></div>' +
+                '<div class="flex flex-wrap items-center gap-2">' +
+                    '<button type="button" data-new-gus-hat-point-minus="' + child.id + '" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black">−1 🎩</button>' +
+                    '<button type="button" data-new-gus-hat-point-plus="' + child.id + '" class="px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-xs font-black text-amber-800">+1 🎩</button>' +
+                    '<input type="number" min="0" step="1" value="' + total + '" data-new-gus-hat-point-value="' + child.id + '" class="w-24 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" aria-label="' + String(child.name || 'Child') + ' Hat Stars">' +
+                    '<button type="button" data-new-gus-hat-point-save="' + child.id + '" class="px-3 py-2 rounded-xl bg-slate-800 text-white text-xs font-black">Set Hat Stars</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        panel.innerHTML =
+            '<h3 class="font-black text-slate-800 text-sm flex items-center gap-2">🎩 Adjust Hat Stars</h3>' +
+            '<p class="text-xs text-slate-500 mt-1 mb-3">Parents can add, remove or set lifetime Hat Stars here. This is also a safe way to test a hat: choose a child’s next hat above, then set Hat Stars to its requirement. Hats already unlocked remain unlocked because this is a lifetime collection.</p>' +
+            '<div class="space-y-3">' + cards + '</div>';
+
+        panel.querySelectorAll('[data-new-gus-hat-point-plus]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                newGusHatPointNudge(button.getAttribute('data-new-gus-hat-point-plus'), 1);
+            });
+        });
+        panel.querySelectorAll('[data-new-gus-hat-point-minus]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                newGusHatPointNudge(button.getAttribute('data-new-gus-hat-point-minus'), -1);
+            });
+        });
+        panel.querySelectorAll('[data-new-gus-hat-point-save]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-new-gus-hat-point-save');
+                var input = panel.querySelector('[data-new-gus-hat-point-value="' + CSS.escape(childId) + '"]');
+                if (!input) return;
+                newGusHatPointSet(childId, input.value);
+            });
+        });
+    }
+
+    // NEW: Keep the isolated parent control current after existing Parent Portal renders.
+    var newGusHatPointOriginalParentRender = window.renderParentPortal;
+    if (typeof newGusHatPointOriginalParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newGusHatPointOriginalParentRender.apply(this, arguments);
+            setTimeout(newGusHatPointRender, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public helpers for controlled testing.
+    window.petpalAdjustGusHatStars = newGusHatPointNudge;
+    window.petpalSetGusHatStars = newGusHatPointSet;
+
+    // NEW: Initial isolated render.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newGusHatPointRender, 0);
+    });
+})();
+</script>
+<script>
+(function newGusHatCustomizationLayer() {
+    'use strict';
+
+    // NEW: Parent-editable lifetime Hat Star requirements are stored separately from
+    // the original hat catalogue so the existing catalogue, functions and artwork
+    // definitions remain untouched.
+    var NEW_GUS_HAT_REQUIREMENT_OVERRIDES_KEY = 'petpalGusHatRequirementOverrides';
+    var NEW_GUS_HAT_ART_OVERRIDES_KEY = 'petpalGusHatArtOverrides';
+    var NEW_GUS_HAT_CUSTOM_PANEL_ID = 'newGusHatCustomizationPanel';
+
+    // NEW: Read parent-defined requirement overrides.
+    function newGusHatReadRequirementOverrides() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_HAT_REQUIREMENT_OVERRIDES_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) { return {}; }
+    }
+
+    // NEW: Get the effective requirement without changing the original catalogue object.
+    function newGusHatEffectiveRequirement(hat) {
+        if (!hat) return 0;
+        var overrides = newGusHatReadRequirementOverrides();
+        var value = Number(overrides[hat.id]);
+        return Number.isFinite(value) && value >= 0 ? Math.floor(value) : Number(hat.requirement) || 0;
+    }
+
+    // NEW: Save one parent-defined requirement.
+    function newGusHatSetRequirement(hatId, value) {
+        if (!hatId) return false;
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric < 0) return false;
+        var overrides = newGusHatReadRequirementOverrides();
+        overrides[hatId] = Math.floor(numeric);
+        try { localStorage.setItem(NEW_GUS_HAT_REQUIREMENT_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) { return false; }
+        newGusHatApplyEffectiveRequirementDisplay();
+        newGusHatTryEffectiveUnlocks();
+        return true;
+    }
+
+    // NEW: Restore a hat to its original catalogue requirement.
+    function newGusHatResetRequirement(hatId) {
+        var overrides = newGusHatReadRequirementOverrides();
+        delete overrides[hatId];
+        try { localStorage.setItem(NEW_GUS_HAT_REQUIREMENT_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) {}
+        newGusHatApplyEffectiveRequirementDisplay();
+        newGusHatTryEffectiveUnlocks();
+    }
+
+    // NEW: Read optional custom SVG artwork supplied by the parent/developer.
+    function newGusHatReadArtOverrides() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_HAT_ART_OVERRIDES_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) { return {}; }
+    }
+
+    // NEW: Set custom SVG markup for a hat. The markup is inserted as a child of Gus's
+    // existing SVG layer, so all existing Gus animations continue to move the artwork.
+    function newGusHatSetArt(hatId, svgMarkup) {
+        if (!hatId || typeof svgMarkup !== 'string' || !svgMarkup.trim()) return false;
+        var overrides = newGusHatReadArtOverrides();
+        overrides[hatId] = svgMarkup;
+        try { localStorage.setItem(NEW_GUS_HAT_ART_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) { return false; }
+        newGusHatRefreshCustomArt();
+        return true;
+    }
+
+    // NEW: Remove custom artwork and return to the built-in SVG artwork.
+    function newGusHatResetArt(hatId) {
+        var overrides = newGusHatReadArtOverrides();
+        delete overrides[hatId];
+        try { localStorage.setItem(NEW_GUS_HAT_ART_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) {}
+        newGusHatRefreshCustomArt();
+    }
+
+    // NEW: Refresh Gus using the existing public hat refresh, which preserves the
+    // existing animation chain and visual positioning.
+    function newGusHatRefreshCustomArt() {
+        try {
+            if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh();
+        } catch (e) {}
+        setTimeout(function() {
+            try {
+                var stateRaw = localStorage.getItem('petpalGusHatCollectionState');
+                var state = stateRaw ? JSON.parse(stateRaw) : {};
+                var child = typeof window.getActiveChild === 'function' ? window.getActiveChild() : null;
+                if (!child || !state[child.id] || !state[child.id].currentHatId) return;
+                var override = newGusHatReadArtOverrides()[state[child.id].currentHatId];
+                if (!override) return;
+                var layer = document.getElementById('newGusHatSvgLayer');
+                if (layer) layer.innerHTML = override;
+            } catch (e) {}
+        }, 0);
+    }
+
+    // NEW: Unlock using the parent-defined requirement. This runs alongside the existing
+    // system rather than replacing any existing function.
+    function newGusHatTryEffectiveUnlocks() {
+        var state = {};
+        try {
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            state = raw ? JSON.parse(raw) : {};
+        } catch (e) { state = {}; }
+
+        var changed = false;
+        Object.keys(state).forEach(function(childId) {
+            var childState = state[childId];
+            if (!childState || !childState.nextHatId) return;
+            var hat = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue.find(function(h){ return h.id === childState.nextHatId; }) : null;
+            if (!hat) return;
+            var requirement = newGusHatEffectiveRequirement(hat);
+            if (Number(childState.lifetimeHatStars) < requirement) return;
+            if (!Array.isArray(childState.unlockedHatIds)) childState.unlockedHatIds = [];
+            if (childState.unlockedHatIds.indexOf(hat.id) === -1) {
+                childState.unlockedHatIds.push(hat.id);
+                childState.currentHatId = hat.id;
+                childState.nextHatId = null;
+                changed = true;
+                try { alert('🎉 Gus unlocked the ' + hat.name + '!'); } catch (e) {}
+            }
+        });
+        if (changed) {
+            try { localStorage.setItem('petpalGusHatCollectionState', JSON.stringify(state)); } catch (e) {}
+            try { if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh(); } catch (e) {}
+            newGusHatRefreshCustomArt();
+        }
+        return changed;
+    }
+
+    // NEW: Apply effective requirement text to the existing isolated hat UI without
+    // changing its existing styling or structure.
+    function newGusHatApplyEffectiveRequirementDisplay() {
+        var overrides = newGusHatReadRequirementOverrides();
+        var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : [];
+        var panel = document.getElementById('newGusHatParentPanel');
+        if (panel) {
+            panel.querySelectorAll('select[data-new-gus-hat-next]').forEach(function(select) {
+                Array.prototype.forEach.call(select.options, function(option) {
+                    var hat = catalogue.find(function(h){ return h.id === option.value; });
+                    if (!hat) return;
+                    option.textContent = hat.emoji + ' ' + hat.name + ' — ' + newGusHatEffectiveRequirement(hat) + ' stars';
+                });
+            });
+        }
+    }
+
+    // NEW: Render parent controls for changing each hat's requirement, while preserving
+    // the existing Gus Hat Rewards panel and all of its controls.
+    function newGusHatRenderCustomizationPanel() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host || !Array.isArray(window.petpalGusHatCatalogue)) return;
+        var panel = document.getElementById(NEW_GUS_HAT_CUSTOM_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_HAT_CUSTOM_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstChild);
+        }
+        var overrides = newGusHatReadRequirementOverrides();
+        var catalogue = window.petpalGusHatCatalogue;
+        var rows = catalogue.map(function(hat) {
+            var effective = newGusHatEffectiveRequirement(hat);
+            var customised = Object.prototype.hasOwnProperty.call(overrides, hat.id);
+            return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center justify-between gap-3">' +
+                '<div><div class="text-sm font-black text-slate-800">' + hat.emoji + ' ' + hat.name + '</div><div class="text-[11px] text-slate-500">Original: ' + hat.requirement + ' Hat Stars' + (customised ? ' · Custom: ' + effective : '') + '</div></div>' +
+                '<div class="flex items-center gap-2"><input type="number" min="0" step="1" value="' + effective + '" data-new-gus-hat-requirement="' + hat.id + '" class="w-24 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" aria-label="' + hat.name + ' Hat Star requirement"><button type="button" data-new-gus-hat-requirement-save="' + hat.id + '" class="px-3 py-2 rounded-xl bg-slate-800 text-white text-xs font-black">Set</button><button type="button" data-new-gus-hat-requirement-reset="' + hat.id + '" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black">Reset</button></div>' +
+                '</div>';
+        }).join('');
+        panel.innerHTML = '<h3 class="font-black text-slate-800 text-sm flex items-center gap-2">🎩 Hat Star Requirements</h3>' +
+            '<p class="text-xs text-slate-500 mt-1 mb-3">Set the lifetime Hat Star value required for any hat. This is ideal for seasonal rewards — for example, set Halloween Hat to a lower value in October. Existing hats stay unlocked even if you later raise a requirement.</p>' +
+            '<div class="space-y-2">' + rows + '</div>';
+        panel.querySelectorAll('[data-new-gus-hat-requirement-save]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var id = button.getAttribute('data-new-gus-hat-requirement-save');
+                var input = panel.querySelector('[data-new-gus-hat-requirement="' + CSS.escape(id) + '"]');
+                if (input) newGusHatSetRequirement(id, input.value);
+                newGusHatRenderCustomizationPanel();
+            });
+        });
+        panel.querySelectorAll('[data-new-gus-hat-requirement-reset]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                newGusHatResetRequirement(button.getAttribute('data-new-gus-hat-requirement-reset'));
+                newGusHatRenderCustomizationPanel();
+            });
+        });
+    }
+
+    // NEW: Keep the custom controls synchronized with the existing Parent Portal.
+    var newGusHatCustomizationOriginalParentRender = window.renderParentPortal;
+    if (typeof newGusHatCustomizationOriginalParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newGusHatCustomizationOriginalParentRender.apply(this, arguments);
+            setTimeout(function() {
+                newGusHatRenderCustomizationPanel();
+                newGusHatApplyEffectiveRequirementDisplay();
+                newGusHatTryEffectiveUnlocks();
+            }, 0);
+            return result;
+        };
+    }
+
+    // NEW: Re-check custom requirements after existing Hat Star changes and chore approvals.
+    var newGusHatCustomizationOriginalSetPoints = window.petpalSetGusHatStars;
+    if (typeof newGusHatCustomizationOriginalSetPoints === 'function') {
+        window.petpalSetGusHatStars = function(childId, value) {
+            var result = newGusHatCustomizationOriginalSetPoints(childId, value);
+            newGusHatTryEffectiveUnlocks();
+            return result;
+        };
+    }
+    var newGusHatCustomizationOriginalApprove = window.approveChore;
+    if (typeof newGusHatCustomizationOriginalApprove === 'function') {
+        window.approveChore = function() {
+            var result = newGusHatCustomizationOriginalApprove.apply(this, arguments);
+            setTimeout(newGusHatTryEffectiveUnlocks, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public API for supplying custom SVG artwork from your own assets/code.
+    // The supplied SVG is rendered inside Gus's existing SVG, preserving all Gus animations.
+    window.petpalSetGusHatArt = newGusHatSetArt;
+    window.petpalResetGusHatArt = newGusHatResetArt;
+    window.petpalSetGusHatRequirement = newGusHatSetRequirement;
+    window.petpalResetGusHatRequirement = newGusHatResetRequirement;
+    window.petpalGetGusHatRequirements = function() {
+        var result = {};
+        var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : [];
+        catalogue.forEach(function(hat) { result[hat.id] = newGusHatEffectiveRequirement(hat); });
+        return result;
+    };
+
+    // NEW: Initial isolated setup.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            newGusHatRenderCustomizationPanel();
+            newGusHatApplyEffectiveRequirementDisplay();
+            newGusHatTryEffectiveUnlocks();
+            newGusHatRefreshCustomArt();
+        }, 0);
+    });
+})();
+</script>
+
+<!-- NEW: ISOLATED EASY HAT EXPANSION / CUSTOM ART TEMPLATE SYSTEM -->
+<script>
+(function newGusEasyHatExpansionSystem() {
+    'use strict';
+
+    // NEW: ADD EXTRA HATS HERE.
+    // Copy one object, give it a unique id, choose the name/emoji/requirement,
+    // and paste your SVG artwork into the art field. The existing hat system will
+    // automatically include the new hat in the parent and kids hat controls.
+    // Artwork uses Gus's existing 200 x 200 SVG coordinate space.
+    var NEW_GUS_EXTRA_HATS = [
+        // NEW: Example — duplicate this object to add another Halloween hat.
+        // {
+        //     id: 'halloween_bat_hat',
+        //     name: 'Halloween Bat Hat',
+        //     emoji: '🦇',
+        //     requirement: 25,
+        //     type: 'Seasonal',
+        //     art: '<g transform="translate(0 -2)"><path d="M62 46 Q72 27 100 25 Q128 27 138 46 Q119 42 100 48 Q81 42 62 46Z" fill="#111827" stroke="#030712" stroke-width="3"/><path d="M72 37 L80 18 L91 29 M128 37 L120 18 L109 29" fill="#7C3AED" stroke="#4C1D95" stroke-width="3"/><circle cx="92" cy="35" r="2" fill="#FDE68A"/><circle cx="108" cy="35" r="2" fill="#FDE68A"/></g>'
+        // }
+    ];
+
+    // NEW: Return only valid, uniquely identified extra hats.
+    function newGusExtraHatIsValid(hat) {
+        return !!(hat && typeof hat.id === 'string' && hat.id.trim() &&
+            typeof hat.name === 'string' && hat.name.trim() &&
+            typeof hat.emoji === 'string' &&
+            Number.isFinite(Number(hat.requirement)) && Number(hat.requirement) >= 0 &&
+            typeof hat.art === 'string' && hat.art.trim());
+    }
+
+    // NEW: Convert a complete <svg> supplied by the parent/developer into inner SVG
+    // markup where possible. Inner <g>/<path>/<circle> markup is also accepted directly.
+    function newGusNormaliseHatArt(art) {
+        if (typeof art !== 'string') return '';
+        var trimmed = art.trim();
+        if (!trimmed) return '';
+        if (!/^<svg[\s>]/i.test(trimmed)) return trimmed;
+        try {
+            var parser = new DOMParser();
+            var doc = parser.parseFromString(trimmed, 'image/svg+xml');
+            var svg = doc.documentElement;
+            if (!svg || svg.nodeName.toLowerCase() !== 'svg') return trimmed;
+            return Array.prototype.map.call(svg.childNodes, function(node) {
+                return new XMLSerializer().serializeToString(node);
+            }).join('');
+        } catch (e) {
+            return trimmed;
+        }
+    }
+
+    // NEW: Add extra hats to the existing catalogue object without replacing the
+    // original catalogue or changing any existing hat definitions/functions.
+    function newGusRegisterExtraHats() {
+        var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : null;
+        if (!catalogue) return;
+
+        NEW_GUS_EXTRA_HATS.forEach(function(hat) {
+            if (!newGusExtraHatIsValid(hat)) return;
+            if (catalogue.some(function(existing) { return existing.id === hat.id; })) return;
+            catalogue.push({
+                id: hat.id,
+                name: hat.name,
+                emoji: hat.emoji,
+                requirement: Math.floor(Number(hat.requirement)),
+                type: hat.type || 'Custom'
+            });
+        });
+    }
+
+    // NEW: Render custom expansion artwork after the existing Gus hat renderer.
+    // The artwork is inserted inside the same #gusSvg layer used by the existing
+    // hat system, so existing Gus animations continue to move the hat with Gus.
+    function newGusRenderExtraHatArt() {
+        try {
+            var child = typeof window.getActiveChild === 'function' ? window.getActiveChild() : null;
+            if (!child) return;
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var childState = state && state[child.id];
+            var hatId = childState && childState.currentHatId;
+            if (!hatId) return;
+            var extra = NEW_GUS_EXTRA_HATS.find(function(h) { return h.id === hatId; });
+            if (!extra) return;
+
+            var gusSvg = document.getElementById('gusSvg');
+            if (!gusSvg) return;
+            var layer = document.getElementById('newGusHatSvgLayer');
+            if (!layer) {
+                layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                layer.setAttribute('id', 'newGusHatSvgLayer');
+                layer.setAttribute('pointer-events', 'none');
+                gusSvg.appendChild(layer);
+            }
+            layer.innerHTML = newGusNormaliseHatArt(extra.art);
+        } catch (e) {}
+    }
+
+    // NEW: Keep the expansion artwork attached whenever the existing hat refresh runs.
+    var newGusOriginalHatRefresh = window.petpalGusHatRefresh;
+    if (typeof newGusOriginalHatRefresh === 'function') {
+        window.petpalGusHatRefresh = function() {
+            var result = newGusOriginalHatRefresh.apply(this, arguments);
+            setTimeout(newGusRenderExtraHatArt, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public helper for adding a hat dynamically during testing. This does not
+    // replace the easy-to-edit catalogue above; it is simply an optional convenience.
+    window.petpalAddGusHat = function(hat) {
+        if (!newGusExtraHatIsValid(hat)) return false;
+        var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : null;
+        if (!catalogue || catalogue.some(function(existing) { return existing.id === hat.id; })) return false;
+        catalogue.push({
+            id: hat.id,
+            name: hat.name,
+            emoji: hat.emoji,
+            requirement: Math.floor(Number(hat.requirement)),
+            type: hat.type || 'Custom'
+        });
+        NEW_GUS_EXTRA_HATS.push(hat);
+        try { if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh(); } catch (e) {}
+        return true;
+    };
+
+    // NEW: Public helper to retrieve the recommended SVG artwork dimensions.
+    window.petpalGusHatSvgTemplate = function() {
+        return {
+            viewBox: '0 0 200 200',
+            width: 200,
+            height: 200,
+            note: 'Place hat artwork in the existing Gus 200x200 SVG coordinate space. You may supply a complete <svg viewBox="0 0 200 200">...</svg> or inner SVG markup.'
+        };
+    };
+
+    // NEW: Register the extra catalogue entries after the existing hat system has loaded.
+    newGusRegisterExtraHats();
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            newGusRegisterExtraHats();
+            try { if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh(); } catch (e) {}
+            setTimeout(newGusRenderExtraHatArt, 0);
+        }, 0);
     });
 })();
 </script>
