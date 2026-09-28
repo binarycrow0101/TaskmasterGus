@@ -3355,6 +3355,93 @@
         return String(name || 'Profile').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Profile';
     }
 
+    // NEW: Convert a diagnostic object into a human-readable text report for easy inspection.
+    function newProfileBackupDiagnosticText(data) {
+        var lines = [];
+        var profile = data.profile || {};
+        var stored = data.storedValues || {};
+        lines.push('PETPAL PROFILE DIAGNOSTIC');
+        lines.push('=========================');
+        lines.push('');
+        lines.push('Profile: ' + (profile.name || 'Unnamed'));
+        lines.push('Profile ID: ' + (profile.id || ''));
+        lines.push('Exported: ' + (data.exportedAt || ''));
+        lines.push('');
+        lines.push('POCKET MONEY');
+        lines.push('------------');
+        lines.push('Stored balance: £' + Number(stored.balance || 0).toFixed(2));
+        lines.push('Approved chore total: £' + Number(stored.approvedStatusTotal || 0).toFixed(2));
+        lines.push('Difference from current approvals: £' + (Number(stored.balanceDifferenceFromCurrentApprovals || 0) / 100).toFixed(2));
+        lines.push('');
+        lines.push('GUS POINTS / SCREEN TIME');
+        lines.push('------------------------');
+        lines.push('Gus Points: ' + Number(stored.gusPoints || 0));
+        lines.push('Screen Time Bank: ' + Number(stored.screenTimeBank || 0) + ' minutes');
+        lines.push('');
+        lines.push('APPROVED CHORES CURRENTLY RECORDED');
+        lines.push('-----------------------------------');
+        var approved = Array.isArray(data.approvedChoreRows) ? data.approvedChoreRows : [];
+        if (!approved.length) {
+            lines.push('No completed chore entries were found in the current saved status data.');
+        } else {
+            approved.forEach(function (row) {
+                lines.push((row.day || 'Unknown day') + ' | ' + (row.title || 'Untitled chore') + ' | £' + Number(row.reward || 0).toFixed(2) + ' | Chore ID: ' + (row.choreId || ''));
+            });
+        }
+        lines.push('');
+        lines.push('DATA WARNINGS');
+        lines.push('-------------');
+        var rewardWarnings = Array.isArray(data.invalidRewardEntries) ? data.invalidRewardEntries : [];
+        var dayWarnings = Array.isArray(data.invalidScheduledDays) ? data.invalidScheduledDays : [];
+        if (!rewardWarnings.length && !dayWarnings.length) {
+            lines.push('No invalid reward values or scheduled-day values were detected.');
+        } else {
+            rewardWarnings.forEach(function (item) {
+                lines.push('Invalid reward: ' + (item.title || 'Untitled chore') + ' | Raw value: ' + String(item.rawReward));
+            });
+            dayWarnings.forEach(function (item) {
+                lines.push('Invalid scheduled day: ' + (item.title || 'Untitled chore') + ' | Day: ' + String(item.day));
+            });
+        }
+        lines.push('');
+        lines.push('GUS / REWARD DATA');
+        lines.push('-----------------');
+        var rewardData = data.gusAndRewardData || {};
+        lines.push('Gus Star state: ' + JSON.stringify(rewardData.starState));
+        lines.push('Reward settings: ' + JSON.stringify(rewardData.rewardSettings));
+        lines.push('Daily Gus target: ' + JSON.stringify(rewardData.dailyTarget));
+        lines.push('Gus Challenge: ' + JSON.stringify(rewardData.gusChallenge));
+        lines.push('Reward history entries: ' + (Array.isArray(rewardData.rewardHistory) ? rewardData.rewardHistory.length : 0));
+        lines.push('Pay Me request entries: ' + (Array.isArray(rewardData.payMeRequests) ? rewardData.payMeRequests.length : 0));
+        lines.push('');
+        lines.push('NOTES');
+        lines.push('-----');
+        (Array.isArray(data.notes) ? data.notes : []).forEach(function (note) { lines.push(note); });
+        lines.push('');
+        lines.push('FULL CHORE DATA');
+        lines.push('---------------');
+        lines.push('The complete saved chore data is included below so this text file can be inspected without needing PetPal.');
+        lines.push('');
+        lines.push(JSON.stringify(Array.isArray(data.chores) ? data.chores : [], null, 2));
+        return lines.join('\n');
+    }
+
+    // NEW: Download a diagnostic as plain text instead of JSON.
+    function newProfileBackupDownloadDiagnosticText(filename, data) {
+        var blob = new Blob([newProfileBackupDiagnosticText(data)], { type: 'text/plain;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(function () {
+            try { URL.revokeObjectURL(url); } catch (e) {}
+            if (link.parentNode) link.parentNode.removeChild(link);
+        }, 1000);
+    }
+
     // NEW: Validate the basic backup shape before any import is allowed.
     function newProfileBackupValidate(data) {
         if (!data || typeof data !== 'object') return { ok: false, message: 'The file is not a valid JSON object.' };
@@ -3533,7 +3620,8 @@
             try {
                 if (!select.value) throw new Error('Please select a profile first.');
                 var data = newProfileBackupBuildDiagnostic(select.value);
-                newProfileBackupDownload('PetPal_' + newProfileBackupFilenamePart(data.profile.name) + '_Diagnostic_' + new Date().toISOString().slice(0,10) + '.json', data);
+                // NEW: Diagnostics are exported as a human-readable .txt file for easy inspection on iPad/Files.
+                newProfileBackupDownloadDiagnosticText('PetPal_' + newProfileBackupFilenamePart(data.profile.name) + '_Diagnostic_' + new Date().toISOString().slice(0,10) + '.txt', data);
             } catch (e) { alert(e.message || 'Could not export the diagnostic.'); }
         });
 
@@ -3598,7 +3686,8 @@
     };
     window.petpalExportProfileDiagnostic = function (childId) {
         var data = newProfileBackupBuildDiagnostic(childId);
-        newProfileBackupDownload('PetPal_Profile_Diagnostic_' + newProfileBackupFilenamePart(data.profile.name) + '.json', data);
+        // NEW: Public diagnostic helper also uses the readable text format.
+        newProfileBackupDownloadDiagnosticText('PetPal_Profile_Diagnostic_' + newProfileBackupFilenamePart(data.profile.name) + '.txt', data);
     };
 
     // NEW: Initialize the isolated panel without changing the existing startup sequence.
