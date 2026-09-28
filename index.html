@@ -7453,7 +7453,7 @@
                 '<div class="text-[10px] font-black uppercase tracking-wider text-indigo-600">Currently Wearing</div>' +
                 '<div class="text-sm font-black text-indigo-900 mt-1">' + (current ? current.emoji + ' ' + current.name : '🐶 No hat') + '</div>' +
             '</div>' +
-            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Gus is excited for his next hat!</div>') +
+            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Your parent will choose Gus\'s next hat.</div>') +
             '<div class="flex flex-wrap gap-2">' + collectionHtml + '</div>' +
             (unlocked.length ? '<button type="button" data-new-gus-hat-wear="" class="mt-3 text-xs font-bold text-slate-500 hover:text-slate-800">🐶 No Hat</button>' : '');
 
@@ -8988,6 +8988,217 @@
         setTimeout(function() {
             if (newV38ReconcileAll()) newV38RefreshHatUI();
         }, 250);
+    });
+})();
+</script>
+
+<!-- NEW: ISOLATED GITHUB HAT ARTWORK RELOAD PANEL -->
+<script>
+(function newGusHatArtworkReloadPanel() {
+    'use strict';
+
+    // NEW: Build a parent-only control card without changing the existing hat logic,
+    // artwork, requirements, or layout outside this isolated addition.
+    function newArtworkGetCatalogue() {
+        try {
+            if (typeof window.petpalGusHatCatalogue === 'function') {
+                var catalogue = window.petpalGusHatCatalogue();
+                if (Array.isArray(catalogue)) return catalogue;
+            }
+        } catch (e) {}
+        return [];
+    }
+
+    // NEW: Reload one named hat. The existing v34+ GitHub artwork loader clears its
+    // in-memory cache and then fetches the current SVG from GitHub Pages.
+    function newArtworkReloadHat(hatId) {
+        try {
+            if (typeof window.petpalGusHatReloadGithubArt === 'function') {
+                window.petpalGusHatReloadGithubArt(hatId);
+            }
+        } catch (e) {}
+    }
+
+    // NEW: Clear all cached external artwork, then refresh the currently active hat.
+    function newArtworkReloadAll() {
+        try {
+            if (typeof window.petpalGusHatReloadGithubArt === 'function') {
+                window.petpalGusHatReloadGithubArt();
+            } else if (typeof window.petpalGusHatRefreshGithubArt === 'function') {
+                window.petpalGusHatRefreshGithubArt();
+            }
+        } catch (e) {}
+    }
+
+    // NEW: Render a compact parent control card into the existing Settings tab.
+    function newArtworkRenderPanel() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var existing = document.getElementById('newGusHatArtworkReloadPanel');
+        if (existing) existing.remove();
+
+        var catalogue = newArtworkGetCatalogue();
+        var panel = document.createElement('div');
+        panel.id = 'newGusHatArtworkReloadPanel';
+        panel.className = 'bg-white rounded-2xl shadow p-4 space-y-3';
+
+        var title = document.createElement('div');
+        title.className = 'font-bold text-lg';
+        title.textContent = '🎨 Gus Hat Artwork';
+        panel.appendChild(title);
+
+        var intro = document.createElement('div');
+        intro.className = 'text-sm text-gray-600';
+        intro.innerHTML = 'Custom SVG artwork is loaded from <code>assets/gus/hats/</code> on your GitHub site. Replace an SVG there, then use Reload Artwork to fetch the new version.';
+        panel.appendChild(intro);
+
+        var reloadAll = document.createElement('button');
+        reloadAll.type = 'button';
+        reloadAll.className = 'px-4 py-2 rounded-xl font-semibold shadow';
+        reloadAll.textContent = '🔄 Reload Current Hat Artwork';
+        reloadAll.addEventListener('click', function() {
+            newArtworkReloadAll();
+        });
+        panel.appendChild(reloadAll);
+
+        var list = document.createElement('div');
+        list.className = 'space-y-2';
+
+        catalogue.forEach(function(hat) {
+            if (!hat || !hat.id) return;
+            var row = document.createElement('div');
+            row.className = 'flex items-center justify-between gap-2 p-2 rounded-xl bg-gray-50';
+
+            var label = document.createElement('div');
+            label.className = 'text-sm';
+            label.textContent = (hat.emoji || '🎩') + ' ' + (hat.name || hat.id) + ' — ' + hat.id + '.svg';
+            row.appendChild(label);
+
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'px-3 py-1 rounded-lg font-semibold shadow text-sm';
+            button.textContent = 'Reload';
+            button.addEventListener('click', function() {
+                newArtworkReloadHat(hat.id);
+            });
+            row.appendChild(button);
+
+            list.appendChild(row);
+        });
+
+        panel.appendChild(list);
+        host.insertBefore(panel, host.firstChild || null);
+    }
+
+    // NEW: Re-render the isolated panel after the existing Parent Portal renders.
+    var newArtworkOriginalRenderParent = window.renderParentPortal;
+    if (typeof newArtworkOriginalRenderParent === 'function') {
+        window.renderParentPortal = function() {
+            var result = newArtworkOriginalRenderParent.apply(this, arguments);
+            setTimeout(newArtworkRenderPanel, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public helper for testing/custom workflows.
+    window.petpalReloadGusHatArtwork = newArtworkReloadAll;
+
+    // NEW: Initial panel setup after the existing UI is ready.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newArtworkRenderPanel, 0);
+    });
+})();
+</script>
+
+<!-- NEW: ISOLATED RELIABLE CUSTOM HAT ART REAPPLY PATCH -->
+<script>
+(function newGusReliableCustomHatArtReapplyPatch() {
+    'use strict';
+
+    // NEW: Read the currently worn hat directly from the isolated hat state.
+    function newReliableReadCurrentHatId() {
+        try {
+            var child = typeof window.getActiveChild === 'function' ? window.getActiveChild() : null;
+            if (!child || !child.id) return '';
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var childState = state && state[child.id];
+            return childState && childState.currentHatId ? childState.currentHatId : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    // NEW: Ask the existing GitHub artwork system to apply the current custom SVG.
+    // This deliberately reuses the existing loader/cache/fallback implementation.
+    function newReliableApplyCurrentCustomArt() {
+        try {
+            var hatId = newReliableReadCurrentHatId();
+            if (!hatId) return;
+            if (typeof window.petpalGusHatRefreshGithubArt === 'function') {
+                window.petpalGusHatRefreshGithubArt();
+            }
+        } catch (e) {}
+    }
+
+    // NEW: Reapply after the existing public refresh function. This catches refreshes
+    // initiated by other isolated modules without modifying their original logic.
+    var newReliableOriginalRefresh = window.petpalGusHatRefresh;
+    if (typeof newReliableOriginalRefresh === 'function') {
+        window.petpalGusHatRefresh = function() {
+            var result = newReliableOriginalRefresh.apply(this, arguments);
+            setTimeout(newReliableApplyCurrentCustomArt, 0);
+            setTimeout(newReliableApplyCurrentCustomArt, 50);
+            return result;
+        };
+    }
+
+    // NEW: Directly wrap the public wear helper as an additional safety path. The
+    // existing internal wear function remains untouched.
+    var newReliableOriginalWear = window.petpalGusHatWear;
+    if (typeof newReliableOriginalWear === 'function') {
+        window.petpalGusHatWear = function() {
+            var result = newReliableOriginalWear.apply(this, arguments);
+            setTimeout(newReliableApplyCurrentCustomArt, 0);
+            setTimeout(newReliableApplyCurrentCustomArt, 50);
+            return result;
+        };
+    }
+
+    // NEW: The Kids Closet uses the original internal wear function, so observe only
+    // direct replacement of Gus's hat layer. When a new layer is inserted after a
+    // hat change, the custom GitHub artwork is immediately reapplied.
+    function newReliableObserveGusSvg() {
+        var gusSvg = document.getElementById('gusSvg');
+        if (!gusSvg || typeof MutationObserver === 'undefined') return;
+
+        var observer = new MutationObserver(function(mutations) {
+            var layerReplaced = mutations.some(function(mutation) {
+                return Array.prototype.some.call(mutation.addedNodes || [], function(node) {
+                    return node && node.nodeType === 1 && node.id === 'newGusHatSvgLayer';
+                }) || Array.prototype.some.call(mutation.removedNodes || [], function(node) {
+                    return node && node.nodeType === 1 && node.id === 'newGusHatSvgLayer';
+                });
+            });
+            if (layerReplaced) {
+                setTimeout(newReliableApplyCurrentCustomArt, 0);
+                setTimeout(newReliableApplyCurrentCustomArt, 50);
+            }
+        });
+
+        observer.observe(gusSvg, { childList: true });
+    }
+
+    // NEW: Also provide a direct public repair/reload helper for testing.
+    window.petpalRepairGusHatArtwork = function() {
+        newReliableApplyCurrentCustomArt();
+        return newReliableReadCurrentHatId();
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newReliableObserveGusSvg, 250);
+        setTimeout(newReliableApplyCurrentCustomArt, 500);
     });
 })();
 </script>
