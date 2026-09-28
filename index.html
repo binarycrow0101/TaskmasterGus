@@ -7258,7 +7258,7 @@
                 '<div class="text-[10px] font-black uppercase tracking-wider text-indigo-600">Currently Wearing</div>' +
                 '<div class="text-sm font-black text-indigo-900 mt-1">' + (current ? current.emoji + ' ' + current.name : '🐶 No hat') + '</div>' +
             '</div>' +
-            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Your parent will choose Gus\'s next hat.</div>') +
+            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Gus is excited for his next hat!</div>') +
             '<div class="flex flex-wrap gap-2">' + collectionHtml + '</div>' +
             (unlocked.length ? '<button type="button" data-new-gus-hat-wear="" class="mt-3 text-xs font-bold text-slate-500 hover:text-slate-800">🐶 No Hat</button>' : '');
 
@@ -8317,5 +8317,155 @@
 
     // NEW: Public testing helper.
     window.petpalCheckGusHatUnlocks = newV35TryHatUnlocks;
+})();
+</script>
+
+
+<!-- NEW: V36 HAT TESTING + CLOSET PLACEMENT RELIABILITY PATCH -->
+<script>
+(function newV36GusHatReliabilityPatch() {
+    'use strict';
+
+    // NEW: Resolve the effective requirement, including the parent's custom value.
+    function newV36GetRequirement(hat) {
+        if (!hat) return 0;
+        try {
+            var raw = localStorage.getItem('petpalGusHatRequirementOverrides');
+            var overrides = raw ? JSON.parse(raw) : {};
+            var custom = Number(overrides && overrides[hat.id]);
+            if (Number.isFinite(custom) && custom >= 0) return Math.floor(custom);
+        } catch (e) {}
+        var original = Number(hat.requirement);
+        return Number.isFinite(original) && original >= 0 ? Math.floor(original) : 0;
+    }
+
+    // NEW: Read the live Hat Stars state and unlock the selected next hat immediately.
+    function newV36CheckSelectedHatUnlocks() {
+        try {
+            var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : [];
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var changed = false;
+
+            Object.keys(state).forEach(function(childId) {
+                var childState = state[childId];
+                if (!childState || !childState.nextHatId) return;
+
+                var hat = catalogue.find(function(item) { return item.id === childState.nextHatId; });
+                if (!hat) return;
+
+                var stars = Number(childState.lifetimeHatStars);
+                if (!Number.isFinite(stars)) stars = 0;
+                var requirement = newV36GetRequirement(hat);
+                if (stars < requirement) return;
+
+                if (!Array.isArray(childState.unlockedHatIds)) childState.unlockedHatIds = [];
+                if (childState.unlockedHatIds.indexOf(hat.id) !== -1) return;
+
+                childState.unlockedHatIds.push(hat.id);
+                childState.currentHatId = hat.id;
+                childState.nextHatId = null;
+                changed = true;
+
+                try { alert('🎉 Gus unlocked the ' + hat.name + '!'); } catch (e) {}
+            });
+
+            if (changed) {
+                localStorage.setItem('petpalGusHatCollectionState', JSON.stringify(state));
+                try { if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh(); } catch (e) {}
+                try { if (typeof window.renderKidsPortal === 'function') window.renderKidsPortal(); } catch (e) {}
+                try { if (typeof window.renderParentPortal === 'function') window.renderParentPortal(); } catch (e) {}
+            }
+            return changed;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // NEW: Wrap the final public Hat Star setters so every parent adjustment is followed
+    // by an immediate unlock check, regardless of which earlier wrapper is active.
+    function newV36WrapHatStarSetter(name) {
+        var original = window[name];
+        if (typeof original !== 'function' || original.__newV36Wrapped) return;
+        var wrapped = function() {
+            var result = original.apply(this, arguments);
+            setTimeout(newV36CheckSelectedHatUnlocks, 0);
+            return result;
+        };
+        wrapped.__newV36Wrapped = true;
+        window[name] = wrapped;
+    }
+
+    newV36WrapHatStarSetter('petpalSetGusHatStars');
+    newV36WrapHatStarSetter('petpalAdjustGusHatStars');
+
+    // NEW: Position the Hat Closet directly beneath Gus's visual area inside the same
+    // Gus card. This is more precise than relying on the card's first child position.
+    function newV36PositionHatCloset() {
+        var panel = document.getElementById('newGusHatPanel');
+        var host = document.getElementById('kidsPortalView');
+        if (!panel || !host) return;
+
+        var gusCard = host.querySelector('.grid.grid-cols-1.lg\\:grid-cols-12 > div.lg\\:col-span-5');
+        if (!gusCard) return;
+
+        var gusVisual = gusCard.querySelector('.relative.w-48.h-48');
+        if (gusVisual && gusVisual.nextElementSibling !== panel) {
+            gusVisual.insertAdjacentElement('afterend', panel);
+        } else if (!gusVisual && panel.parentElement !== gusCard) {
+            gusCard.appendChild(panel);
+        }
+
+        panel.style.width = '100%';
+    }
+
+    // NEW: Ensure the child-facing wording is applied whenever the isolated panel redraws.
+    function newV36UpdateHatQuestion() {
+        var panel = document.getElementById('newGusHatPanel');
+        if (!panel) return;
+        panel.querySelectorAll('.text-xs.font-bold.text-slate-600').forEach(function(node) {
+            if (node.textContent.indexOf('Your parent will choose Gus') !== -1) {
+                node.textContent = 'What hat will Gus get next?';
+            }
+        });
+    }
+
+    // NEW: Keep the two isolated changes applied after any Kids Portal redraw.
+    function newV36Refresh() {
+        newV36CheckSelectedHatUnlocks();
+        newV36PositionHatCloset();
+        newV36UpdateHatQuestion();
+    }
+
+    // NEW: Wrap the current final Kids Portal renderer without changing its implementation.
+    var newV36OriginalKidsRender = window.renderKidsPortal;
+    if (typeof newV36OriginalKidsRender === 'function' && !newV36OriginalKidsRender.__newV36Wrapped) {
+        var newV36KidsWrapped = function() {
+            var result = newV36OriginalKidsRender.apply(this, arguments);
+            setTimeout(newV36Refresh, 0);
+            return result;
+        };
+        newV36KidsWrapped.__newV36Wrapped = true;
+        window.renderKidsPortal = newV36KidsWrapped;
+    }
+
+    // NEW: Run once after the existing DOM is ready, then observe the Kids Portal because
+    // the existing hat module recreates its panel during normal renders.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            newV36Refresh();
+            var host = document.getElementById('kidsPortalView');
+            if (host && typeof MutationObserver !== 'undefined') {
+                var observer = new MutationObserver(function() {
+                    newV36PositionHatCloset();
+                    newV36UpdateHatQuestion();
+                });
+                observer.observe(host, { childList: true, subtree: true });
+            }
+        }, 50);
+    });
+
+    // NEW: Public test helper for parent-side troubleshooting.
+    window.petpalCheckGusHatUnlocks = newV36CheckSelectedHatUnlocks;
 })();
 </script>
