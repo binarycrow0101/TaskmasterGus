@@ -7960,3 +7960,179 @@
     });
 })();
 </script>
+
+<!-- NEW: ISOLATED GITHUB HAT ART OVERRIDE SYSTEM -->
+<script>
+(function newGusGithubHatArtOverrideSystem() {
+    'use strict';
+
+    // NEW: Put replacement/custom SVG files in this folder in the same GitHub
+    // repository as the PetPal HTML file. Relative paths also work with GitHub Pages.
+    var NEW_GUS_HAT_ART_FOLDER = 'assets/gus/hats/';
+    var NEW_GUS_HAT_ART_CACHE = {};
+    var NEW_GUS_HAT_ART_LOADING = {};
+
+    // NEW: Convert a complete SVG file into the inner SVG markup expected by Gus's
+    // existing hat layer. The existing built-in artwork remains the fallback.
+    function newGusGithubNormaliseSvg(svgText) {
+        if (typeof svgText !== 'string' || !svgText.trim()) return '';
+        var trimmed = svgText.trim();
+        if (!/^<svg[\s>]/i.test(trimmed)) return trimmed;
+        try {
+            var parser = new DOMParser();
+            var doc = parser.parseFromString(trimmed, 'image/svg+xml');
+            var svg = doc.documentElement;
+            if (!svg || svg.nodeName.toLowerCase() !== 'svg') return '';
+            return Array.prototype.map.call(svg.childNodes, function(node) {
+                return new XMLSerializer().serializeToString(node);
+            }).join('');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    // NEW: Safely turn a hat id into the matching filename. Hat ids in this app are
+    // catalogue identifiers, so only simple filename characters are accepted.
+    function newGusGithubHatFileName(hatId) {
+        if (typeof hatId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(hatId)) return '';
+        return hatId + '.svg';
+    }
+
+    // NEW: Find the built-in artwork for a hat so a missing GitHub file never breaks
+    // the existing hat system.
+    function newGusGithubBuiltInArt(hatId) {
+        try {
+            if (typeof NEW_GUS_HAT_ART !== 'undefined' && NEW_GUS_HAT_ART[hatId]) {
+                return NEW_GUS_HAT_ART[hatId];
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    // NEW: Read the parent's existing local SVG override first. This preserves the
+    // v32/v33 testing API and means a local test artwork can take priority.
+    function newGusGithubLocalArtOverride(hatId) {
+        try {
+            var raw = localStorage.getItem('petpalGusHatArtOverrides');
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed[hatId] === 'string' ? parsed[hatId] : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    // NEW: Apply the selected artwork to the same SVG layer used by the existing
+    // Gus hat renderer. Nothing is positioned outside Gus's SVG.
+    function newGusGithubApplyArt(hatId, art) {
+        if (!hatId || !art) return false;
+        var layer = document.getElementById('newGusHatSvgLayer');
+        if (!layer) return false;
+        var normalised = newGusGithubNormaliseSvg(art);
+        if (!normalised) return false;
+        layer.innerHTML = normalised;
+        return true;
+    }
+
+    // NEW: Fetch one SVG from the GitHub-hosted assets folder. A failed/missing file
+    // is deliberately ignored so the original embedded artwork continues to work.
+    function newGusGithubLoadArt(hatId, done) {
+        if (!hatId) { if (done) done(''); return; }
+        if (NEW_GUS_HAT_ART_CACHE[hatId]) { if (done) done(NEW_GUS_HAT_ART_CACHE[hatId]); return; }
+        if (NEW_GUS_HAT_ART_LOADING[hatId]) {
+            NEW_GUS_HAT_ART_LOADING[hatId].push(done);
+            return;
+        }
+        NEW_GUS_HAT_ART_LOADING[hatId] = [done];
+        var fileName = newGusGithubHatFileName(hatId);
+        if (!fileName) {
+            var invalidQueue = NEW_GUS_HAT_ART_LOADING[hatId] || [];
+            delete NEW_GUS_HAT_ART_LOADING[hatId];
+            invalidQueue.forEach(function(cb){ if (cb) cb(''); });
+            return;
+        }
+        fetch(NEW_GUS_HAT_ART_FOLDER + fileName, { cache: 'no-cache' })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Hat SVG not found');
+                return response.text();
+            })
+            .then(function(text) {
+                var normalised = newGusGithubNormaliseSvg(text);
+                if (!normalised) throw new Error('Invalid hat SVG');
+                NEW_GUS_HAT_ART_CACHE[hatId] = normalised;
+                var queue = NEW_GUS_HAT_ART_LOADING[hatId] || [];
+                delete NEW_GUS_HAT_ART_LOADING[hatId];
+                queue.forEach(function(cb){ if (cb) cb(normalised); });
+            })
+            .catch(function() {
+                var queue = NEW_GUS_HAT_ART_LOADING[hatId] || [];
+                delete NEW_GUS_HAT_ART_LOADING[hatId];
+                queue.forEach(function(cb){ if (cb) cb(''); });
+            });
+    }
+
+    // NEW: Determine the active hat and apply artwork in this order:
+    // 1) Parent/developer local override, 2) GitHub SVG, 3) built-in artwork.
+    function newGusGithubRefreshActiveHat() {
+        try {
+            var child = typeof window.getActiveChild === 'function' ? window.getActiveChild() : null;
+            if (!child) return;
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var childState = state && state[child.id];
+            var hatId = childState && childState.currentHatId;
+            if (!hatId) return;
+
+            var localOverride = newGusGithubLocalArtOverride(hatId);
+            if (localOverride) {
+                newGusGithubApplyArt(hatId, localOverride);
+                return;
+            }
+
+            var fallback = newGusGithubBuiltInArt(hatId);
+            if (fallback) newGusGithubApplyArt(hatId, fallback);
+
+            newGusGithubLoadArt(hatId, function(remoteArt) {
+                if (!remoteArt) return;
+                // NEW: Re-check the active hat before applying an asynchronous fetch,
+                // preventing an old request from replacing a newly selected hat.
+                try {
+                    var latestRaw = localStorage.getItem('petpalGusHatCollectionState');
+                    var latestState = latestRaw ? JSON.parse(latestRaw) : {};
+                    var latestChildState = latestState && latestState[child.id];
+                    if (latestChildState && latestChildState.currentHatId === hatId) {
+                        newGusGithubApplyArt(hatId, remoteArt);
+                    }
+                } catch (e) {}
+            });
+        } catch (e) {}
+    }
+
+    // NEW: Re-run after the existing hat refresh. The original system remains the
+    // owner of hat state and animation behaviour; this layer only supplies artwork.
+    var newGusGithubOriginalRefresh = window.petpalGusHatRefresh;
+    if (typeof newGusGithubOriginalRefresh === 'function') {
+        window.petpalGusHatRefresh = function() {
+            var result = newGusGithubOriginalRefresh.apply(this, arguments);
+            setTimeout(newGusGithubRefreshActiveHat, 0);
+            return result;
+        };
+    }
+
+    // NEW: Public controls for testing and for future custom artwork workflows.
+    window.petpalGusHatRefreshGithubArt = newGusGithubRefreshActiveHat;
+    window.petpalGusHatArtFolder = NEW_GUS_HAT_ART_FOLDER;
+
+    // NEW: Clear the in-memory cache after a replacement so a newly uploaded SVG can
+    // be picked up without changing the catalogue or hat state.
+    window.petpalGusHatReloadGithubArt = function(hatId) {
+        if (hatId) delete NEW_GUS_HAT_ART_CACHE[hatId];
+        else NEW_GUS_HAT_ART_CACHE = {};
+        newGusGithubRefreshActiveHat();
+    };
+
+    // NEW: Initial setup after the existing PetPal UI is ready.
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newGusGithubRefreshActiveHat, 0);
+    });
+})();
+</script>
