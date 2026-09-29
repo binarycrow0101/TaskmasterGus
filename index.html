@@ -7453,7 +7453,7 @@
                 '<div class="text-[10px] font-black uppercase tracking-wider text-indigo-600">Currently Wearing</div>' +
                 '<div class="text-sm font-black text-indigo-900 mt-1">' + (current ? current.emoji + ' ' + current.name : '🐶 No hat') + '</div>' +
             '</div>' +
-            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Gus is super excited for his new hat!</div>') +
+            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Gus can not wait for his next hat!</div>') +
             '<div class="flex flex-wrap gap-2">' + collectionHtml + '</div>' +
             (unlocked.length ? '<button type="button" data-new-gus-hat-wear="" class="mt-3 text-xs font-bold text-slate-500 hover:text-slate-800">🐶 No Hat</button>' : '');
 
@@ -9200,5 +9200,1548 @@
         setTimeout(newReliableObserveGusSvg, 250);
         setTimeout(newReliableApplyCurrentCustomArt, 500);
     });
+})();
+</script>
+
+<!-- NEW: V42 NEXT HAT PROGRESS DISPLAY -->
+<script>
+(function newV42NextHatProgressDisplay() {
+    'use strict';
+
+    // NEW: Read the existing lifetime Hat Stars state without changing its structure.
+    function newV42ReadHatState() {
+        try {
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // NEW: Read the parent-defined effective requirement for each hat.
+    function newV42GetRequirement(hat) {
+        if (!hat) return 0;
+        try {
+            var raw = localStorage.getItem('petpalGusHatRequirementOverrides');
+            var overrides = raw ? JSON.parse(raw) : {};
+            var custom = Number(overrides && overrides[hat.id]);
+            if (Number.isFinite(custom) && custom >= 0) return Math.floor(custom);
+        } catch (e) {}
+        var original = Number(hat.requirement);
+        return Number.isFinite(original) && original >= 0 ? Math.floor(original) : 0;
+    }
+
+    // NEW: Resolve the existing catalogue so requirements stay in one source of truth.
+    function newV42GetCatalogue() {
+        if (Array.isArray(window.petpalGusHatCatalogue)) return window.petpalGusHatCatalogue;
+        return [];
+    }
+
+    // NEW: Find the active child from the same saved PetPal data used by the app.
+    function newV42GetActiveChildId() {
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var data = raw ? JSON.parse(raw) : null;
+            if (data && Array.isArray(data.children) && data.children.length) {
+                return data.activeChildId || data.children[0].id || null;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    // NEW: Calculate the next genuinely unearned hat. Because Hat Stars now unlock
+    // every hat at or below the child's total, this is the first requirement above it.
+    function newV42GetNextHat(childState, catalogue) {
+        if (!childState || !catalogue.length) return null;
+        var stars = Number(childState.lifetimeHatStars);
+        if (!Number.isFinite(stars)) stars = 0;
+
+        var candidates = catalogue.map(function(hat, index) {
+            return {
+                hat: hat,
+                requirement: newV42GetRequirement(hat),
+                index: index
+            };
+        }).filter(function(item) {
+            return childState.unlockedHatIds.indexOf(item.hat.id) === -1;
+        });
+
+        candidates.sort(function(a, b) {
+            if (a.requirement !== b.requirement) return a.requirement - b.requirement;
+            return a.index - b.index;
+        });
+
+        return candidates.length ? candidates[0] : null;
+    }
+
+    // NEW: Update the existing amber Next Hat card with a clear visual progress meter.
+    // Existing styling classes are retained; only the displayed progress information is added.
+    function newV42RenderNextHatProgress() {
+        var panel = document.getElementById('newGusHatPanel');
+        if (!panel) return;
+
+        var childId = newV42GetActiveChildId();
+        if (!childId) return;
+
+        var state = newV42ReadHatState();
+        var childState = state[childId];
+        if (!childState) return;
+        if (!Array.isArray(childState.unlockedHatIds)) childState.unlockedHatIds = [];
+
+        var catalogue = newV42GetCatalogue();
+        var next = newV42GetNextHat(childState, catalogue);
+        var stars = Number(childState.lifetimeHatStars);
+        if (!Number.isFinite(stars) || stars < 0) stars = 0;
+
+        // NEW: Locate the existing Next Hat card by its heading rather than relying on DOM position.
+        var cards = panel.querySelectorAll('div.rounded-2xl');
+        var target = null;
+        Array.prototype.forEach.call(cards, function(card) {
+            if (target) return;
+            var text = (card.textContent || '').trim();
+            if (text.indexOf('Next Hat') !== -1 || text.indexOf("Your parent will choose Gus\'s next hat.") !== -1) {
+                target = card;
+            }
+        });
+
+        if (!target) {
+            target = document.createElement('div');
+            target.className = 'rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3';
+            var collection = panel.querySelector('.flex.flex-wrap.gap-2');
+            if (collection) panel.insertBefore(target, collection);
+            else panel.appendChild(target);
+        }
+
+        if (!next) {
+            target.innerHTML =
+                '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Hat Collection Complete</div>' +
+                '<div class="text-sm font-black text-amber-900 mt-1">🎉 Gus has unlocked every hat!</div>' +
+                '<div class="text-[11px] font-bold text-amber-700 mt-1">' + stars + ' Hat Stars earned</div>' +
+                '<div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:100%"></div></div>';
+            return;
+        }
+
+        var requirement = next.requirement;
+        var remaining = Math.max(0, requirement - stars);
+        var progress = requirement <= 0 ? 100 : Math.min(100, Math.round((stars / requirement) * 100));
+
+        target.innerHTML =
+            '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div>' +
+            '<div class="text-sm font-black text-amber-900 mt-1">' + next.hat.emoji + ' ' + next.hat.name + '</div>' +
+            '<div class="flex items-center justify-between gap-2 mt-1">' +
+                '<div class="text-[11px] font-bold text-amber-700">' + stars + ' / ' + requirement + ' Hat Stars</div>' +
+                '<div class="text-[11px] font-black text-amber-800">' + remaining + ' to go!</div>' +
+            '</div>' +
+            '<div class="h-3 bg-white rounded-full overflow-hidden mt-2 border border-amber-100" aria-label="Hat progress: ' + progress + ' percent">' +
+                '<div class="h-full bg-amber-400 rounded-full transition-all duration-300" style="width:' + progress + '%"></div>' +
+            '</div>' +
+            '<div class="text-[10px] font-bold text-amber-600 mt-1">Keep earning Hat Stars to unlock this hat.</div>';
+    }
+
+    // NEW: Re-render after the existing Kids Portal finishes building its Hat Closet.
+    function newV42ScheduleProgress() {
+        setTimeout(newV42RenderNextHatProgress, 0);
+        setTimeout(newV42RenderNextHatProgress, 75);
+    }
+
+    // NEW: Wrap the public Kids Portal renderer without changing its original implementation.
+    var newV42OriginalKidsRender = window.renderKidsPortal;
+    if (typeof newV42OriginalKidsRender === 'function' && !newV42OriginalKidsRender.__newV42Wrapped) {
+        var newV42WrappedKidsRender = function() {
+            var result = newV42OriginalKidsRender.apply(this, arguments);
+            newV42ScheduleProgress();
+            return result;
+        };
+        newV42WrappedKidsRender.__newV42Wrapped = true;
+        window.renderKidsPortal = newV42WrappedKidsRender;
+    }
+
+    // NEW: Keep the progress display current after Hat Star adjustment/testing controls.
+    document.addEventListener('click', function(event) {
+        if (event.target.closest('[data-new-gus-hat-point-plus],[data-new-gus-hat-point-minus],[data-new-gus-hat-point-save]')) {
+            setTimeout(newV42RenderNextHatProgress, 100);
+        }
+    });
+
+    // NEW: Public helper for testing or refreshing the visual independently.
+    window.petpalRefreshGusHatProgress = newV42RenderNextHatProgress;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newV42RenderNextHatProgress, 150);
+        setTimeout(newV42RenderNextHatProgress, 500);
+    });
+})();
+</script>
+
+
+<script>
+// NEW: V43 RELIABLE PER-PROFILE GUS HAT PROGRESS DISPLAY PATCH
+(function(){
+    // NEW: Use the app's existing active-child helper so the progress display
+    // always follows whichever child profile is currently selected.
+    function newV43GetActiveChild(){
+        try {
+            if (typeof newGusHatActiveChild === 'function') return newGusHatActiveChild();
+        } catch (e) {}
+        try {
+            if (typeof getActiveChild === 'function') return getActiveChild();
+        } catch (e) {}
+        return null;
+    }
+
+    // NEW: Read the current lifetime Hat Stars without changing stored data.
+    function newV43ReadChildState(childId){
+        try {
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var childState = state && state[childId] ? state[childId] : null;
+            if (!childState) return null;
+            if (!Array.isArray(childState.unlockedHatIds)) childState.unlockedHatIds = [];
+            var stars = Number(childState.lifetimeHatStars);
+            if (!Number.isFinite(stars) || stars < 0) stars = 0;
+            childState.lifetimeHatStars = stars;
+            return childState;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // NEW: Respect the existing parent-set requirement override when calculating progress.
+    function newV43GetRequirement(hat){
+        var requirement = Number(hat && hat.requirement);
+        try {
+            var raw = localStorage.getItem('petpalGusHatRequirementOverrides');
+            var overrides = raw ? JSON.parse(raw) : {};
+            if (hat && overrides && Number.isFinite(Number(overrides[hat.id]))) {
+                requirement = Math.max(0, Number(overrides[hat.id]));
+            }
+        } catch (e) {}
+        return Number.isFinite(requirement) ? Math.max(0, requirement) : 0;
+    }
+
+    // NEW: Find the first hat the child has not yet unlocked, ordered by requirement.
+    function newV43GetNextHat(childState){
+        var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : [];
+        if (!catalogue.length || !childState) return null;
+        var candidates = catalogue.map(function(hat, index){
+            return { hat: hat, requirement: newV43GetRequirement(hat), index: index };
+        }).filter(function(item){
+            return childState.unlockedHatIds.indexOf(item.hat.id) === -1;
+        });
+        candidates.sort(function(a,b){
+            return a.requirement - b.requirement || a.index - b.index;
+        });
+        return candidates.length ? candidates[0] : null;
+    }
+
+    // NEW: Find the existing Next Hat area inside the Hat Closet and replace only its contents.
+    function newV43RenderHatProgress(){
+        var panel = document.getElementById('newGusHatPanel');
+        if (!panel) return;
+
+        var child = newV43GetActiveChild();
+        if (!child || !child.id) return;
+
+        var childState = newV43ReadChildState(child.id);
+        if (!childState) return;
+
+        var next = newV43GetNextHat(childState);
+        var stars = childState.lifetimeHatStars;
+        var target = null;
+        var cards = panel.querySelectorAll('.rounded-2xl');
+        Array.prototype.forEach.call(cards, function(card){
+            if (target) return;
+            var text = (card.textContent || '').trim();
+            if (text.indexOf('Next Hat') !== -1 || text.indexOf('Your parent will choose Gus') !== -1) target = card;
+        });
+
+        if (!target) {
+            target = document.createElement('div');
+            target.className = 'rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3';
+            var collection = panel.querySelector('.flex.flex-wrap.gap-2');
+            if (collection) panel.insertBefore(target, collection);
+            else panel.appendChild(target);
+        }
+
+        if (!next) {
+            target.innerHTML =
+                '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Hat Collection Complete</div>' +
+                '<div class="text-sm font-black text-amber-900 mt-1">🎉 Gus has unlocked every hat!</div>' +
+                '<div class="text-[11px] font-bold text-amber-700 mt-1">' + stars + ' Hat Stars earned</div>' +
+                '<div class="h-3 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:100%"></div></div>';
+            return;
+        }
+
+        var requirement = next.requirement;
+        var remaining = Math.max(0, requirement - stars);
+        var percent = requirement <= 0 ? 100 : Math.min(100, Math.round((stars / requirement) * 100));
+        target.innerHTML =
+            '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div>' +
+            '<div class="text-sm font-black text-amber-900 mt-1">' + next.hat.emoji + ' ' + next.hat.name + '</div>' +
+            '<div class="flex items-center justify-between gap-2 mt-1">' +
+                '<div class="text-[11px] font-bold text-amber-700">' + stars + ' / ' + requirement + ' Hat Stars</div>' +
+                '<div class="text-[11px] font-black text-amber-800">' + remaining + ' to go!</div>' +
+            '</div>' +
+            '<div class="h-3 bg-white rounded-full overflow-hidden mt-2 border border-amber-100" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '" aria-label="Progress towards ' + next.hat.name + '">' +
+                '<div class="h-full bg-amber-400 rounded-full transition-all duration-300" style="width:' + percent + '%"></div>' +
+            '</div>' +
+            '<div class="text-[10px] font-bold text-amber-600 mt-1">Keep earning Hat Stars to unlock this hat.</div>';
+    }
+
+    // NEW: Run after the existing Hat Closet has rendered, including after profile switching.
+    function newV43ScheduleHatProgress(){
+        setTimeout(newV43RenderHatProgress, 0);
+        setTimeout(newV43RenderHatProgress, 100);
+        setTimeout(newV43RenderHatProgress, 300);
+    }
+
+    // NEW: Wrap the existing Kids Portal renderer without changing its implementation.
+    var newV43OriginalRenderKids = window.renderKidsPortal;
+    if (typeof newV43OriginalRenderKids === 'function' && !newV43OriginalRenderKids.__newV43HatProgressWrapped) {
+        var newV43WrappedRenderKids = function(){
+            var result = newV43OriginalRenderKids.apply(this, arguments);
+            newV43ScheduleHatProgress();
+            return result;
+        };
+        newV43WrappedRenderKids.__newV43HatProgressWrapped = true;
+        window.renderKidsPortal = newV43WrappedRenderKids;
+    }
+
+    // NEW: Reapply after Hat Star testing/adjustment controls are used.
+    document.addEventListener('click', function(event){
+        if (event.target.closest('[data-new-gus-hat-point-plus],[data-new-gus-hat-point-minus],[data-new-gus-hat-point-save]')) {
+            newV43ScheduleHatProgress();
+        }
+    });
+
+    // NEW: Public refresh helper for testing.
+    window.petpalRefreshGusHatProgress = newV43RenderHatProgress;
+
+    document.addEventListener('DOMContentLoaded', function(){
+        newV43ScheduleHatProgress();
+    });
+})();
+</script>
+
+<script>
+// NEW: V44 EXPLICIT KIDS HAT PROGRESS CARD
+// NEW: Adds a standalone, always-visible progress card inside each child's Gus Hat Closet.
+// NEW: This intentionally does not depend on the existing "Next Hat" card or its DOM position.
+(function(){
+    function newV44GetChild(){
+        try { if (typeof getActiveChild === 'function') return getActiveChild(); } catch (e) {}
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var data = raw ? JSON.parse(raw) : null;
+            if (!data || !Array.isArray(data.children) || !data.children.length) return null;
+            var id = data.activeChildId || data.children[0].id;
+            return data.children.find(function(c){ return c.id === id; }) || data.children[0];
+        } catch (e) { return null; }
+    }
+
+    function newV44GetState(childId){
+        try {
+            var raw = localStorage.getItem('petpalGusHatCollectionState');
+            var state = raw ? JSON.parse(raw) : {};
+            var value = state && state[childId];
+            if (!value) return { lifetimeHatStars: 0, unlockedHatIds: [] };
+            return {
+                lifetimeHatStars: Math.max(0, Number(value.lifetimeHatStars) || 0),
+                unlockedHatIds: Array.isArray(value.unlockedHatIds) ? value.unlockedHatIds : []
+            };
+        } catch (e) { return { lifetimeHatStars: 0, unlockedHatIds: [] }; }
+    }
+
+    function newV44Requirement(hat){
+        var requirement = Number(hat && hat.requirement);
+        try {
+            var raw = localStorage.getItem('petpalGusHatRequirementOverrides');
+            var overrides = raw ? JSON.parse(raw) : {};
+            if (hat && overrides && Number.isFinite(Number(overrides[hat.id]))) {
+                requirement = Number(overrides[hat.id]);
+            }
+        } catch (e) {}
+        return Number.isFinite(requirement) ? Math.max(0, Math.floor(requirement)) : 0;
+    }
+
+    function newV44GetNext(state){
+        var catalogue = Array.isArray(window.petpalGusHatCatalogue) ? window.petpalGusHatCatalogue : [];
+        var unlocked = state.unlockedHatIds || [];
+        var candidates = catalogue.map(function(hat, index){
+            return { hat: hat, requirement: newV44Requirement(hat), index: index };
+        }).filter(function(item){ return unlocked.indexOf(item.hat.id) === -1; });
+        candidates.sort(function(a,b){ return a.requirement - b.requirement || a.index - b.index; });
+        return candidates.length ? candidates[0] : null;
+    }
+
+    function newV44Render(){
+        var panel = document.getElementById('newGusHatPanel');
+        if (!panel) return;
+        var child = newV44GetChild();
+        if (!child || !child.id) return;
+        var state = newV44GetState(child.id);
+        var next = newV44GetNext(state);
+        var existing = panel.querySelector('[data-new-v44-hat-progress="true"]');
+        if (!existing) {
+            existing = document.createElement('div');
+            existing.setAttribute('data-new-v44-hat-progress', 'true');
+            existing.className = 'rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3';
+            var first = panel.firstElementChild;
+            if (first) panel.insertBefore(existing, first.nextSibling || first);
+            else panel.appendChild(existing);
+        }
+
+        var stars = state.lifetimeHatStars;
+        if (!next) {
+            existing.innerHTML =
+                '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">🎩 Hat Progress</div>' +
+                '<div class="text-sm font-black text-amber-900 mt-1">🎉 Gus has unlocked every hat!</div>' +
+                '<div class="text-[11px] font-bold text-amber-700 mt-1">' + stars + ' Hat Stars earned</div>' +
+                '<div class="h-3 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:100%"></div></div>';
+            return;
+        }
+
+        var requirement = next.requirement;
+        var remaining = Math.max(0, requirement - stars);
+        var percent = requirement <= 0 ? 100 : Math.min(100, Math.max(0, Math.round((stars / requirement) * 100)));
+        existing.innerHTML =
+            '<div class="flex items-center justify-between gap-2">' +
+                '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">🎩 Hat Progress</div>' +
+                '<div class="text-[10px] font-black text-amber-800">' + percent + '%</div>' +
+            '</div>' +
+            '<div class="text-sm font-black text-amber-900 mt-1">Next hat: ' + next.hat.emoji + ' ' + next.hat.name + '</div>' +
+            '<div class="flex items-center justify-between gap-2 mt-1">' +
+                '<div class="text-[11px] font-bold text-amber-700">' + stars + ' / ' + requirement + ' Hat Stars</div>' +
+                '<div class="text-[11px] font-black text-amber-800">' + remaining + ' to go!</div>' +
+            '</div>' +
+            '<div class="h-3 bg-white rounded-full overflow-hidden mt-2 border border-amber-100" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '">' +
+                '<div class="h-full bg-amber-400 rounded-full transition-all duration-300" style="width:' + percent + '%"></div>' +
+            '</div>' +
+            '<div class="text-[10px] font-bold text-amber-600 mt-1">Earn ' + remaining + ' more Hat Stars to win this hat.</div>';
+    }
+
+    function newV44Schedule(){
+        setTimeout(newV44Render, 0);
+        setTimeout(newV44Render, 150);
+        setTimeout(newV44Render, 500);
+    }
+
+    // NEW: Wrap the current renderer so the standalone card is recreated after every profile render.
+    var original = window.renderKidsPortal;
+    if (typeof original === 'function' && !original.__newV44HatProgressWrapped) {
+        var wrapped = function(){
+            var result = original.apply(this, arguments);
+            newV44Schedule();
+            return result;
+        };
+        wrapped.__newV44HatProgressWrapped = true;
+        window.renderKidsPortal = wrapped;
+    }
+
+    // NEW: Keep the card current after parent Hat Star adjustments.
+    document.addEventListener('click', function(event){
+        if (event.target.closest('[data-new-gus-hat-point-plus],[data-new-gus-hat-point-minus],[data-new-gus-hat-point-save]')) newV44Schedule();
+    });
+
+    window.petpalRefreshGusHatProgress = newV44Render;
+    document.addEventListener('DOMContentLoaded', newV44Schedule);
+})();
+</script>
+<script>
+// NEW: ISOLATED RARE / SEASONAL GUS HATS SYSTEM
+(function newGusRareHatEventSystem() {
+    'use strict';
+
+    // NEW: All rare-hat configuration lives in this isolated catalogue. To add a new
+    // rare hat, duplicate one object and change only these fields. The SVG filename
+    // should match the id and live in assets/gus/hats/ on the same GitHub site.
+    var NEW_GUS_RARE_HAT_DEFINITIONS = [
+        // NEW: Example seasonal hat. It is not active until a parent creates/saves an event.
+        {
+            id: 'halloween_rare_hat',
+            name: 'Halloween Rare Hat',
+            emoji: '🎃',
+            type: 'seasonal',
+            defaultRequirementType: 'challenge',
+            defaultTarget: 5,
+            defaultStart: '2026-10-01',
+            defaultEnd: '2026-10-31',
+            artFile: 'halloween_rare_hat.svg'
+        }
+    ];
+
+    var NEW_GUS_RARE_EVENT_KEY = 'petpalGusRareHatEvents';
+    var NEW_GUS_RARE_PROGRESS_KEY = 'petpalGusRareHatProgress';
+    var NEW_GUS_RARE_REGISTERED_KEY = 'petpalGusRareHatRegistered';
+    var NEW_GUS_RARE_PANEL_ID = 'newGusRareHatEventPanel';
+    var NEW_GUS_RARE_KIDS_ID = 'newGusRareHatKidsPanel';
+    var NEW_GUS_RARE_MAX_TARGET = 10000;
+
+    // NEW: Supported requirement types. These are deliberately based on existing PetPal
+    // activity so no existing chore/reward values are changed.
+    var NEW_GUS_RARE_REQUIREMENT_TYPES = {
+        challenge: 'Complete Gus Challenges',
+        daily_goal: 'Reach Gus\'s Daily Goal',
+        chores: 'Complete approved chores',
+        gus_points: 'Earn Gus Points',
+        hat_stars: 'Earn Hat Stars',
+        manual: 'Parent awards the hat'
+    };
+
+    // NEW: Small helpers keep this module self-contained and avoid touching appData directly.
+    function newRareRead(key, fallback) {
+        try {
+            var raw = localStorage.getItem(key);
+            if (!raw) return fallback;
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : fallback;
+        } catch (e) { return fallback; }
+    }
+
+    function newRareWrite(key, value) {
+        try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; }
+    }
+
+    function newRareEscape(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function newRareTodayKey(date) {
+        var d = date || new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function newRareDateFromValue(value) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+        var d = new Date(String(value) + 'T12:00:00');
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function newRareInWindow(dateKey, start, end) {
+        var date = newRareDateFromValue(dateKey);
+        var from = newRareDateFromValue(start);
+        var to = newRareDateFromValue(end);
+        if (!date || !from || !to) return false;
+        return date >= from && date <= to;
+    }
+
+    function newRareGetChildren() {
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var parsed = raw ? JSON.parse(raw) : null;
+            return parsed && Array.isArray(parsed.children) ? parsed.children : [];
+        } catch (e) { return []; }
+    }
+
+    function newRareDefinition(id) {
+        return NEW_GUS_RARE_HAT_DEFINITIONS.find(function(item) { return item.id === id; }) || null;
+    }
+
+    function newRareGetEvents() { return newRareRead(NEW_GUS_RARE_EVENT_KEY, {}); }
+    function newRareGetProgress() { return newRareRead(NEW_GUS_RARE_PROGRESS_KEY, {}); }
+
+    // NEW: Event key is unique to child + rare hat so each child earns the same rare hat independently.
+    function newRareEventKey(childId, hatId) { return String(childId) + '::' + String(hatId); }
+
+    function newRareEnsureProgress(progress, childId, hatId) {
+        var key = newRareEventKey(childId, hatId);
+        if (!progress[key]) progress[key] = { value: 0, awarded: false, entries: [] };
+        if (!Array.isArray(progress[key].entries)) progress[key].entries = [];
+        progress[key].value = Math.max(0, Number(progress[key].value) || 0);
+        progress[key].awarded = !!progress[key].awarded;
+        return progress[key];
+    }
+
+    // NEW: Keep rare hats out of the normal Hat Star progression. They are only added to the
+    // existing hat catalogue when actually won, so the existing "Next Hat" system is untouched.
+    function newRareRegisterWonHat(definition) {
+        if (!definition) return false;
+        var registered = newRareRead(NEW_GUS_RARE_REGISTERED_KEY, {});
+        if (registered[definition.id]) return true;
+
+        var add = window.petpalAddGusHat;
+        if (typeof add !== 'function') return false;
+
+        // NEW: Transparent placeholder ensures the existing SVG hat layer exists; the existing
+        // GitHub artwork system then replaces it with assets/gus/hats/<id>.svg.
+        var placeholder = '<g><rect x="0" y="0" width="1" height="1" fill="none" opacity="0"/></g>';
+        var added = add({
+            id: definition.id,
+            name: definition.name,
+            emoji: definition.emoji,
+            requirement: 999999999,
+            type: 'Rare',
+            art: placeholder
+        });
+        if (!added && Array.isArray(window.petpalGusHatCatalogue)) {
+            added = window.petpalGusHatCatalogue.some(function(hat) { return hat.id === definition.id; });
+        }
+        if (!added) return false;
+        registered[definition.id] = true;
+        newRareWrite(NEW_GUS_RARE_REGISTERED_KEY, registered);
+        return true;
+    }
+
+    function newRareUnlockForChild(childId, definition, eventKey) {
+        if (!definition) return false;
+        if (!newRareRegisterWonHat(definition)) return false;
+
+        var state = newRareRead('petpalGusHatCollectionState', {});
+        if (!state[childId]) state[childId] = {
+            childName: 'Child', lifetimeHatStars: 0, unlockedHatIds: [], currentHatId: null, nextHatId: null
+        };
+        if (!Array.isArray(state[childId].unlockedHatIds)) state[childId].unlockedHatIds = [];
+        if (state[childId].unlockedHatIds.indexOf(definition.id) === -1) {
+            state[childId].unlockedHatIds.push(definition.id);
+        }
+        newRareWrite('petpalGusHatCollectionState', state);
+
+        var progress = newRareGetProgress();
+        var record = newRareEnsureProgress(progress, childId, definition.id);
+        record.awarded = true;
+        newRareWrite(NEW_GUS_RARE_PROGRESS_KEY, progress);
+
+        try { alert('🎉 ' + definition.name + ' unlocked! It is yours forever.'); } catch (e) {}
+        try { if (typeof window.petpalGusHatRefresh === 'function') window.petpalGusHatRefresh(); } catch (e) {}
+        try { if (typeof window.renderKidsPortal === 'function') window.renderKidsPortal(); } catch (e) {}
+        return true;
+    }
+
+    function newRareGetEvent(childId, hatId) {
+        var events = newRareGetEvents();
+        return events[newRareEventKey(childId, hatId)] || null;
+    }
+
+    function newRareGetDefinitionForEvent(event) {
+        return event ? newRareDefinition(event.hatId) : null;
+    }
+
+    function newRareTarget(event) {
+        var target = Math.floor(Number(event && event.target));
+        return Number.isFinite(target) && target >= 1 ? Math.min(target, NEW_GUS_RARE_MAX_TARGET) : 1;
+    }
+
+    function newRareRequirementLabel(type) {
+        return NEW_GUS_RARE_REQUIREMENT_TYPES[type] || 'Special event';
+    }
+
+    function newRareProgressValue(childId, event) {
+        if (!event) return 0;
+        var progress = newRareGetProgress();
+        var record = progress[newRareEventKey(childId, event.hatId)];
+        return record ? Math.max(0, Number(record.value) || 0) : 0;
+    }
+
+    function newRareAwardIfReady(childId, event) {
+        if (!event || !event.hatId || event.requirementType === 'manual') return false;
+        var progress = newRareGetProgress();
+        var record = newRareEnsureProgress(progress, childId, event.hatId);
+        if (record.awarded) return false;
+        if (newRareTarget(event) <= record.value) return newRareUnlockForChild(childId, newRareDefinition(event.hatId), newRareEventKey(childId, event.hatId));
+        newRareWrite(NEW_GUS_RARE_PROGRESS_KEY, progress);
+        return false;
+    }
+
+    // NEW: Increment a rare-event counter once per unique event entry. This prevents repeated
+    // Parent Portal renders or duplicate approval wrappers from farming progress.
+    function newRareIncrement(childId, event, amount, entryId) {
+        if (!event || event.requirementType === 'manual') return false;
+        if (!newRareInWindow(newRareTodayKey(), event.startDate, event.endDate)) return false;
+        var numeric = Number(amount);
+        if (!Number.isFinite(numeric) || numeric <= 0) return false;
+        var progress = newRareGetProgress();
+        var record = newRareEnsureProgress(progress, childId, event.hatId);
+        if (entryId && record.entries.indexOf(String(entryId)) !== -1) return false;
+        if (entryId) record.entries.push(String(entryId));
+        record.value += numeric;
+        record.value = Math.min(record.value, NEW_GUS_RARE_MAX_TARGET);
+        newRareWrite(NEW_GUS_RARE_PROGRESS_KEY, progress);
+        newRareAwardIfReady(childId, event);
+        return true;
+    }
+
+    // NEW: Record approved chores and Gus Points for active rare events. Existing approval logic
+    // still owns the chore, money, Gus Points and screen-time changes.
+    function newRareRecordApproval(childId, choreId, day) {
+        var children = newRareGetChildren();
+        var child = children.find(function(item) { return String(item.id) === String(childId); });
+        if (!child) return;
+        var events = newRareGetEvents();
+        Object.keys(events).forEach(function(key) {
+            var event = events[key];
+            if (!event || String(event.childId) !== String(childId)) return;
+            var chore = Array.isArray(child.chores) ? child.chores.find(function(item) { return String(item.id) === String(choreId); }) : null;
+            if (!chore) return;
+            var dateKey = newRareTodayKey();
+            var entryId = dateKey + '|' + String(choreId) + '|' + String(day || '');
+
+            if (event.requirementType === 'chores' || event.requirementType === 'gus_points') {
+                var amount = event.requirementType === 'gus_points' ? Number(chore.gusPointsReward || 0) : 1;
+                newRareIncrement(childId, event, amount, entryId);
+            }
+
+            // NEW: A completed existing Gus Challenge also counts toward a rare-hat
+            // challenge event. The ordinary challenge reward remains unchanged.
+            if (event.requirementType === 'challenge') {
+                try {
+                    var rawChallenge = localStorage.getItem('gusDailyChallenges');
+                    var challengeStore = rawChallenge ? JSON.parse(rawChallenge) : {};
+                    var challenge = challengeStore && challengeStore[String(childId)];
+                    if (challenge && challenge.date === dateKey && challenge.completed && String(challenge.choreId) === String(choreId)) {
+                        newRareIncrement(childId, event, 1, 'challenge|' + entryId);
+                    }
+                } catch (e) {}
+            }
+        });
+    }
+
+    // NEW: Record completion of the existing daily Gus Goal using its saved daily history.
+    function newRareScanDailyGoals() {
+        var events = newRareGetEvents();
+        var history = newRareRead('gusTargetDailyStarHistory', {});
+        Object.keys(events).forEach(function(key) {
+            var event = events[key];
+            if (!event || event.requirementType !== 'daily_goal') return;
+            var childHistory = history[String(event.childId)] || {};
+            if (!childHistory || typeof childHistory !== 'object') return;
+            Object.keys(childHistory).forEach(function(dateKey) {
+                if (!newRareInWindow(dateKey, event.startDate, event.endDate)) return;
+                var stars = Number(childHistory[dateKey] || 0);
+                if (stars <= 0) return;
+                newRareIncrement(event.childId, event, 1, 'daily-goal|' + event.childId + '|' + dateKey);
+            });
+        });
+    }
+
+    // NEW: Record Hat Stars earned during an event from the existing lifetime Hat Star state.
+    function newRareScanHatStars() {
+        var events = newRareGetEvents();
+        var hatState = newRareRead('petpalGusHatCollectionState', {});
+        Object.keys(events).forEach(function(key) {
+            var event = events[key];
+            if (!event || event.requirementType !== 'hat_stars') return;
+            var childState = hatState[event.childId];
+            if (!childState) return;
+            var baseline = Number(event.baselineHatStars);
+            if (!Number.isFinite(baseline)) {
+                event.baselineHatStars = Number(childState.lifetimeHatStars) || 0;
+                events[key] = event;
+                newRareWrite(NEW_GUS_RARE_EVENT_KEY, events);
+                baseline = event.baselineHatStars;
+            }
+            var current = Number(childState.lifetimeHatStars) || 0;
+            if (current > baseline) {
+                var amount = current - baseline;
+                newRareIncrement(event.childId, event, amount, 'hat-stars|' + current);
+            }
+        });
+    }
+
+    // NEW: Parent can manually award a rare hat. This is useful for birthdays or one-off events.
+    function newRareManualAward(childId, hatId) {
+        var event = newRareGetEvent(childId, hatId);
+        if (!event || event.requirementType !== 'manual') return false;
+        return newRareUnlockForChild(childId, newRareDefinition(hatId), newRareEventKey(childId, hatId));
+    }
+
+    // NEW: Save one child's rare-hat event configuration without touching any existing PetPal data.
+    function newRareSaveEvent(childId, hatId, requirementType, target, startDate, endDate) {
+        var definition = newRareDefinition(hatId);
+        if (!definition) return false;
+        var type = Object.prototype.hasOwnProperty.call(NEW_GUS_RARE_REQUIREMENT_TYPES, requirementType) ? requirementType : definition.defaultRequirementType;
+        var numericTarget = Math.max(1, Math.min(NEW_GUS_RARE_MAX_TARGET, Math.floor(Number(target) || definition.defaultTarget || 1)));
+        var start = newRareDateFromValue(startDate) ? String(startDate) : definition.defaultStart;
+        var end = newRareDateFromValue(endDate) ? String(endDate) : definition.defaultEnd;
+        if (newRareDateFromValue(start) > newRareDateFromValue(end)) return false;
+        var events = newRareGetEvents();
+        var key = newRareEventKey(childId, hatId);
+        var existing = events[key] || {};
+        events[key] = {
+            childId: String(childId),
+            hatId: hatId,
+            requirementType: type,
+            target: type === 'manual' ? 1 : numericTarget,
+            startDate: start,
+            endDate: end,
+            baselineHatStars: Object.prototype.hasOwnProperty.call(existing, 'baselineHatStars') ? existing.baselineHatStars : null,
+            enabled: true
+        };
+        newRareWrite(NEW_GUS_RARE_EVENT_KEY, events);
+        newRareScanDailyGoals();
+        newRareScanHatStars();
+        newRareRenderAll();
+        return true;
+    }
+
+    function newRareRemoveEvent(childId, hatId) {
+        var events = newRareGetEvents();
+        delete events[newRareEventKey(childId, hatId)];
+        newRareWrite(NEW_GUS_RARE_EVENT_KEY, events);
+        newRareRenderAll();
+    }
+
+    // NEW: Parent Portal controls. This is a new standalone card; existing Settings/Manage UI is untouched.
+    function newRareRenderParentPanel() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+        var children = newRareGetChildren();
+        if (!children.length) return;
+        var panel = document.getElementById(NEW_GUS_RARE_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_RARE_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.appendChild(panel);
+        }
+
+        var events = newRareGetEvents();
+        var definitions = NEW_GUS_RARE_HAT_DEFINITIONS;
+        var childBlocks = children.map(function(child) {
+            var active = definitions.map(function(definition) {
+                var event = events[newRareEventKey(child.id, definition.id)] || {};
+                var selectedType = event.requirementType || definition.defaultRequirementType;
+                var selectedTarget = event.target || definition.defaultTarget;
+                var selectedStart = event.startDate || definition.defaultStart;
+                var selectedEnd = event.endDate || definition.defaultEnd;
+                var progress = newRareProgressValue(child.id, event);
+                var enabled = !!event.enabled;
+                return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 mt-3">' +
+                    '<div class="flex items-center justify-between gap-3"><div class="text-sm font-black text-slate-800">' + newRareEscape(definition.emoji + ' ' + definition.name) + '</div>' +
+                    '<span class="text-[10px] font-extrabold ' + (enabled ? 'text-emerald-600' : 'text-slate-400') + '">' + (enabled ? 'ACTIVE' : 'NOT ACTIVE') + '</span></div>' +
+                    '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">' +
+                        '<select data-rare-type="' + newRareEscape(child.id + '|' + definition.id) + '" class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">' +
+                            Object.keys(NEW_GUS_RARE_REQUIREMENT_TYPES).map(function(type) { return '<option value="' + type + '" ' + (type === selectedType ? 'selected' : '') + '>' + newRareEscape(newRareRequirementLabel(type)) + '</option>'; }).join('') +
+                        '</select>' +
+                        '<input type="number" min="1" step="1" value="' + newRareEscape(selectedTarget) + '" data-rare-target="' + newRareEscape(child.id + '|' + definition.id) + '" class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" />' +
+                        '<label class="text-[10px] font-bold text-slate-500">Start <input type="date" value="' + newRareEscape(selectedStart) + '" data-rare-start="' + newRareEscape(child.id + '|' + definition.id) + '" class="block w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" /></label>' +
+                        '<label class="text-[10px] font-bold text-slate-500">End <input type="date" value="' + newRareEscape(selectedEnd) + '" data-rare-end="' + newRareEscape(child.id + '|' + definition.id) + '" class="block w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" /></label>' +
+                    '</div>' +
+                    '<div class="flex flex-wrap items-center gap-2 mt-3">' +
+                        '<button type="button" data-rare-save="' + newRareEscape(child.id + '|' + definition.id) + '" class="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Save Event</button>' +
+                        (enabled ? '<button type="button" data-rare-remove="' + newRareEscape(child.id + '|' + definition.id) + '" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700">Turn Off</button>' : '') +
+                        (enabled && selectedType === 'manual' ? '<button type="button" data-rare-award="' + newRareEscape(child.id + '|' + definition.id) + '" class="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-black">Award Hat</button>' : '') +
+                        '<span class="text-[10px] font-bold text-slate-500">Progress: ' + Math.min(progress, newRareTarget(event)) + ' / ' + (selectedType === 'manual' ? 'manual' : selectedTarget) + '</span>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+            return '<div class="border-t border-slate-100 pt-4 mt-4"><div class="text-xs font-extrabold text-slate-800">' + newRareEscape(child.name || 'Child') + '</div>' + active + '</div>';
+        }).join('');
+
+        panel.innerHTML = '<h3 class="font-black text-slate-800 text-sm flex items-center gap-2">✨ Rare Hats & Events</h3>' +
+            '<p class="text-xs text-slate-500 mt-1">Create seasonal or special hat events. The event opportunity expires on the end date, but a hat that is won stays unlocked forever.</p>' +
+            childBlocks;
+
+        panel.querySelectorAll('[data-rare-save]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var parts = button.getAttribute('data-rare-save').split('|');
+                var childId = parts[0], hatId = parts[1];
+                var type = panel.querySelector('[data-rare-type="' + CSS.escape(childId + '|' + hatId) + '"]').value;
+                var target = panel.querySelector('[data-rare-target="' + CSS.escape(childId + '|' + hatId) + '"]').value;
+                var start = panel.querySelector('[data-rare-start="' + CSS.escape(childId + '|' + hatId) + '"]').value;
+                var end = panel.querySelector('[data-rare-end="' + CSS.escape(childId + '|' + hatId) + '"]').value;
+                if (!newRareSaveEvent(childId, hatId, type, target, start, end)) alert('Please check the rare-hat event settings.');
+            });
+        });
+        panel.querySelectorAll('[data-rare-award]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var parts = button.getAttribute('data-rare-award').split('|');
+                if (!newRareManualAward(parts[0], parts[1])) alert('Please save the event as a manual rare-hat event first.');
+            });
+        });
+        panel.querySelectorAll('[data-rare-remove]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var parts = button.getAttribute('data-rare-remove').split('|');
+                newRareRemoveEvent(parts[0], parts[1]);
+            });
+        });
+    }
+
+    // NEW: Kids Portal card. It is added as a separate feature card and does not replace any
+    // existing chore, Gus, Hat Closet, or profile UI.
+    function newRareRenderKidsPanel() {
+        var host = document.getElementById('kidsPortalView');
+        if (!host || (typeof appData !== 'undefined' && appData.isParentMode)) return;
+        var child = null;
+        try { child = typeof getActiveChild === 'function' ? getActiveChild() : null; } catch (e) {}
+        if (!child) return;
+
+        var events = newRareGetEvents();
+        var activeEvents = NEW_GUS_RARE_HAT_DEFINITIONS.map(function(definition) {
+            var event = events[newRareEventKey(child.id, definition.id)];
+            if (!event || !event.enabled) return null;
+            if (!newRareInWindow(newRareTodayKey(), event.startDate, event.endDate)) return null;
+            return { definition: definition, event: event, progress: newRareProgressValue(child.id, event) };
+        }).filter(Boolean);
+
+        var panel = document.getElementById(NEW_GUS_RARE_KIDS_ID);
+        if (!activeEvents.length) {
+            if (panel) panel.remove();
+            return;
+        }
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_GUS_RARE_KIDS_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstElementChild || null);
+        }
+
+        panel.innerHTML = '<div class="flex items-center justify-between gap-3 mb-3"><div><h3 class="font-black text-slate-800 text-base flex items-center gap-2">✨ Rare Hats & Events</h3><p class="text-xs text-slate-500 mt-1">Special hats you can win during a limited-time event.</p></div><span class="text-lg">🏆</span></div>' +
+            activeEvents.map(function(item) {
+                var target = newRareTarget(item.event);
+                var progress = Math.min(target, item.progress);
+                var percent = target ? Math.min(100, Math.round((progress / target) * 100)) : 0;
+                var remaining = Math.max(0, target - progress);
+                var manual = item.event.requirementType === 'manual';
+                return '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mt-3">' +
+                    '<div class="text-[10px] font-black uppercase tracking-wider text-amber-700">✨ Rare Hat Event</div>' +
+                    '<div class="text-sm font-black text-amber-900 mt-1">' + newRareEscape(item.definition.emoji + ' ' + item.definition.name) + '</div>' +
+                    '<div class="text-[11px] font-bold text-amber-700 mt-1">' + (manual ? 'A special hat chosen by your parent.' : newRareEscape(newRareRequirementLabel(item.event.requirementType)) + ' — ' + progress + ' / ' + target) + '</div>' +
+                    (!manual ? '<div class="h-3 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + percent + '%"></div></div><div class="text-[10px] font-bold text-amber-700 mt-1">' + (remaining ? remaining + ' more to win it!' : '🎉 Ready to win!') + '</div>' : '') +
+                    '<div class="text-[10px] font-bold text-slate-500 mt-2">Event ends ' + newRareEscape(item.event.endDate) + '. If you win it, the hat is yours forever.</div>' +
+                '</div>';
+            }).join('');
+    }
+
+    // NEW: Approval wrapper only observes completed approvals and records isolated rare-event progress.
+    var newRarePreviousApprove = window.approveChore;
+    if (typeof newRarePreviousApprove === 'function' && !newRarePreviousApprove.__newRareHatWrapped) {
+        var newRareWrappedApprove = function() {
+            var args = arguments;
+            var result = newRarePreviousApprove.apply(this, args);
+            try { newRareRecordApproval(args[0], args[1], args[2]); } catch (e) {}
+            setTimeout(newRareRenderAll, 0);
+            return result;
+        };
+        newRareWrappedApprove.__newRareHatWrapped = true;
+        window.approveChore = newRareWrappedApprove;
+    }
+
+    // NEW: Scan existing daily-goal and Hat-Star history whenever the feature renders.
+    function newRareScanAll() {
+        newRareScanDailyGoals();
+        newRareScanHatStars();
+    }
+
+    function newRareRenderAll() {
+        newRareScanAll();
+        newRareRenderParentPanel();
+        newRareRenderKidsPanel();
+    }
+
+    // NEW: Public helpers for parents/testing and future event controls.
+    window.petpalGusRareHatDefinitions = NEW_GUS_RARE_HAT_DEFINITIONS;
+    window.petpalCreateGusRareHatEvent = newRareSaveEvent;
+    window.petpalRemoveGusRareHatEvent = newRareRemoveEvent;
+    window.petpalAwardGusRareHat = newRareManualAward;
+    window.petpalRefreshGusRareHats = newRareRenderAll;
+
+    // NEW: Re-render after the existing portal renderers without changing their behaviour.
+    var newRarePreviousKidsRender = window.renderKidsPortal;
+    if (typeof newRarePreviousKidsRender === 'function' && !newRarePreviousKidsRender.__newRareHatWrapped) {
+        var newRareKidsWrapped = function() {
+            var result = newRarePreviousKidsRender.apply(this, arguments);
+            setTimeout(newRareRenderKidsPanel, 0);
+            return result;
+        };
+        newRareKidsWrapped.__newRareHatWrapped = true;
+        window.renderKidsPortal = newRareKidsWrapped;
+    }
+
+    var newRarePreviousParentRender = window.renderParentPortal;
+    if (typeof newRarePreviousParentRender === 'function' && !newRarePreviousParentRender.__newRareHatWrapped) {
+        var newRareParentWrapped = function() {
+            var result = newRarePreviousParentRender.apply(this, arguments);
+            setTimeout(newRareRenderParentPanel, 0);
+            return result;
+        };
+        newRareParentWrapped.__newRareHatWrapped = true;
+        window.renderParentPortal = newRareParentWrapped;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(newRareRenderAll, 300);
+    });
+})();
+</script>
+<script>
+// NEW: V46 RARE HAT REWARD SELECTOR
+// NEW: Lets the parent choose exactly which rare hat each child can win for an event.
+// NEW: One active event is configured per child. Winning the selected hat adds it to the
+// NEW: child's permanent Gus Hat Closet; missing the event does not award the hat.
+(function newGusRareHatRewardSelectorV46() {
+    'use strict';
+
+    var PANEL_ID = 'newGusRareHatEventPanel';
+    var EVENTS_KEY = 'petpalGusRareHatEvents';
+    var DEFINITIONS_KEY = 'petpalGusRareHatDefinitions';
+    var SELECTIONS_KEY = 'petpalGusRareHatEventSelections';
+    var PROGRESS_KEY = 'petpalGusRareHatProgress';
+
+    function read(key, fallback) {
+        try {
+            var raw = localStorage.getItem(key);
+            if (!raw) return fallback;
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : fallback;
+        } catch (e) { return fallback; }
+    }
+
+    function write(key, value) {
+        try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; }
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function todayKey() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function dateValue(value) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+        var d = new Date(String(value) + 'T12:00:00');
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function inWindow(dateKey, start, end) {
+        var d = dateValue(dateKey), s = dateValue(start), e = dateValue(end);
+        return !!(d && s && e && d >= s && d <= e);
+    }
+
+    function getChildren() {
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var data = raw ? JSON.parse(raw) : null;
+            return data && Array.isArray(data.children) ? data.children : [];
+        } catch (e) { return []; }
+    }
+
+    function definitions() {
+        // NEW: The original rare-hat catalogue is exposed by v45. Fall back to a public
+        // catalogue if a future build exposes it under window instead.
+        if (Array.isArray(window.petpalGusRareHatDefinitions)) return window.petpalGusRareHatDefinitions;
+        try {
+            var stored = read(DEFINITIONS_KEY, []);
+            return Array.isArray(stored) ? stored : [];
+        } catch (e) { return []; }
+    }
+
+    function events() { return read(EVENTS_KEY, {}); }
+    function progress() { return read(PROGRESS_KEY, {}); }
+    function selections() { return read(SELECTIONS_KEY, {}); }
+    function eventKey(childId, hatId) { return String(childId) + '::' + String(hatId); }
+
+    function target(event) {
+        var n = Math.floor(Number(event && event.target));
+        return Number.isFinite(n) && n >= 1 ? n : 1;
+    }
+
+    function progressValue(childId, hatId) {
+        var p = progress()[eventKey(childId, hatId)];
+        return p ? Math.max(0, Number(p.value) || 0) : 0;
+    }
+
+    function selectedHatId(childId, defs, evs) {
+        var picks = selections();
+        var saved = picks[String(childId)];
+        if (saved && defs.some(function(d) { return d.id === saved; })) return saved;
+
+        var active = defs.find(function(d) {
+            var e = evs[eventKey(childId, d.id)];
+            return e && e.enabled;
+        });
+        return active ? active.id : (defs[0] ? defs[0].id : null);
+    }
+
+    function labelForType(type) {
+        var labels = {
+            challenge: 'Complete Gus Challenges',
+            daily_goal: 'Reach Gus\'s Daily Goal',
+            chores: 'Complete approved chores',
+            gus_points: 'Earn Gus Points',
+            hat_stars: 'Earn Hat Stars',
+            manual: 'Parent awards the hat'
+        };
+        return labels[type] || 'Special event';
+    }
+
+    function saveSelection(childId, hatId) {
+        var picks = selections();
+        picks[String(childId)] = hatId;
+        write(SELECTIONS_KEY, picks);
+    }
+
+    function saveEvent(childId, hatId, type, targetValue, start, end) {
+        if (typeof window.petpalCreateGusRareHatEvent !== 'function') return false;
+
+        // NEW: Disable any other event for this child so the selected reward is the only
+        // rare hat attached to the event. Existing earned hats remain permanently unlocked.
+        var evs = events();
+        Object.keys(evs).forEach(function(key) {
+            if (String(evs[key] && evs[key].childId) === String(childId) && key !== eventKey(childId, hatId)) {
+                delete evs[key];
+            }
+        });
+        write(EVENTS_KEY, evs);
+
+        saveSelection(childId, hatId);
+        return window.petpalCreateGusRareHatEvent(childId, hatId, type, targetValue, start, end);
+    }
+
+    function removeEvent(childId, hatId) {
+        if (typeof window.petpalRemoveGusRareHatEvent === 'function') {
+            window.petpalRemoveGusRareHatEvent(childId, hatId);
+        } else {
+            var evs = events();
+            delete evs[eventKey(childId, hatId)];
+            write(EVENTS_KEY, evs);
+        }
+    }
+
+    function render() {
+        var panel = document.getElementById(PANEL_ID);
+        if (!panel) return;
+        var children = getChildren();
+        var defs = definitions();
+        if (!children.length || !defs.length) return;
+
+        var evs = events();
+        var blocks = children.map(function(child) {
+            var childId = String(child.id);
+            var selectedId = selectedHatId(childId, defs, evs);
+            var selected = defs.find(function(d) { return d.id === selectedId; }) || defs[0];
+            var event = selected ? evs[eventKey(childId, selected.id)] || {} : {};
+            var type = event.requirementType || selected.defaultRequirementType || 'challenge';
+            var targetValue = event.target || selected.defaultTarget || 1;
+            var start = event.startDate || selected.defaultStart || todayKey();
+            var end = event.endDate || selected.defaultEnd || todayKey();
+            var enabled = !!event.enabled;
+            var prog = selected ? progressValue(childId, selected.id) : 0;
+            var shownTarget = type === 'manual' ? 'manual' : targetValue;
+            var choices = defs.map(function(d) {
+                return '<option value="' + escapeHtml(d.id) + '" ' + (d.id === selected.id ? 'selected' : '') + '>' + escapeHtml(d.emoji + ' ' + d.name) + '</option>';
+            }).join('');
+            var eventStatus = enabled ? 'ACTIVE' : 'NOT ACTIVE';
+
+            return '<div class="border-t border-slate-100 pt-4 mt-4" data-v46-child="' + escapeHtml(childId) + '">' +
+                '<div class="text-xs font-extrabold text-slate-800">' + escapeHtml(child.name || 'Child') + '</div>' +
+                '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 mt-3">' +
+                    '<div class="flex items-center justify-between gap-3">' +
+                        '<div class="text-sm font-black text-slate-800">🎁 Event Reward Hat</div>' +
+                        '<span class="text-[10px] font-extrabold ' + (enabled ? 'text-emerald-600' : 'text-slate-400') + '">' + eventStatus + '</span>' +
+                    '</div>' +
+                    '<div class="text-[10px] font-bold text-slate-500 mt-1">Choose the one rare hat this child can win for this event.</div>' +
+                    '<label class="block text-[10px] font-bold text-slate-500 mt-3">Rare hat reward' +
+                        '<select data-v46-hat="' + escapeHtml(childId) + '" class="block w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">' + choices + '</select>' +
+                    '</label>' +
+                    '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">' +
+                        '<select data-v46-type="' + escapeHtml(childId) + '" class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">' +
+                            Object.keys({challenge:1,daily_goal:1,chores:1,gus_points:1,hat_stars:1,manual:1}).map(function(t) {
+                                return '<option value="' + t + '" ' + (t === type ? 'selected' : '') + '>' + escapeHtml(labelForType(t)) + '</option>';
+                            }).join('') +
+                        '</select>' +
+                        '<input type="number" min="1" step="1" value="' + escapeHtml(targetValue) + '" data-v46-target="' + escapeHtml(childId) + '" class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" />' +
+                        '<label class="text-[10px] font-bold text-slate-500">Start <input type="date" value="' + escapeHtml(start) + '" data-v46-start="' + escapeHtml(childId) + '" class="block w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" /></label>' +
+                        '<label class="text-[10px] font-bold text-slate-500">End <input type="date" value="' + escapeHtml(end) + '" data-v46-end="' + escapeHtml(childId) + '" class="block w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white" /></label>' +
+                    '</div>' +
+                    '<div class="flex flex-wrap items-center gap-2 mt-3">' +
+                        '<button type="button" data-v46-save="' + escapeHtml(childId) + '" class="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Save Event</button>' +
+                        (enabled ? '<button type="button" data-v46-remove="' + escapeHtml(childId) + '" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700">Turn Off</button>' : '') +
+                        (enabled && type === 'manual' ? '<button type="button" data-v46-award="' + escapeHtml(childId) + '" class="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-black">Award Hat</button>' : '') +
+                        '<span class="text-[10px] font-bold text-slate-500">Progress: ' + Math.min(Number(prog) || 0, Number(targetValue) || 1) + ' / ' + escapeHtml(shownTarget) + '</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        panel.innerHTML = '<h3 class="font-black text-slate-800 text-sm flex items-center gap-2">✨ Rare Hats & Events</h3>' +
+            '<p class="text-xs text-slate-500 mt-1">Choose the rare hat each child can win. The event ends on its end date; if the child completes it in time, the hat stays in their Gus Hat Closet permanently.</p>' +
+            blocks;
+
+        panel.querySelectorAll('[data-v46-hat]').forEach(function(select) {
+            select.addEventListener('change', function() {
+                var childId = select.getAttribute('data-v46-hat');
+                saveSelection(childId, select.value);
+                render();
+            });
+        });
+
+        panel.querySelectorAll('[data-v46-save]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-v46-save');
+                var hatId = panel.querySelector('[data-v46-hat="' + CSS.escape(childId) + '"]').value;
+                var type = panel.querySelector('[data-v46-type="' + CSS.escape(childId) + '"]').value;
+                var targetValue = panel.querySelector('[data-v46-target="' + CSS.escape(childId) + '"]').value;
+                var start = panel.querySelector('[data-v46-start="' + CSS.escape(childId) + '"]').value;
+                var end = panel.querySelector('[data-v46-end="' + CSS.escape(childId) + '"]').value;
+                if (!dateValue(start) || !dateValue(end) || dateValue(start) > dateValue(end)) {
+                    alert('Please check the rare-hat event dates.');
+                    return;
+                }
+                if (!saveEvent(childId, hatId, type, targetValue, start, end)) {
+                    alert('Please check the rare-hat event settings.');
+                    return;
+                }
+                render();
+            });
+        });
+
+        panel.querySelectorAll('[data-v46-remove]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-v46-remove');
+                var hatId = panel.querySelector('[data-v46-hat="' + CSS.escape(childId) + '"]').value;
+                removeEvent(childId, hatId);
+                render();
+            });
+        });
+
+        panel.querySelectorAll('[data-v46-award]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-v46-award');
+                var hatId = panel.querySelector('[data-v46-hat="' + CSS.escape(childId) + '"]').value;
+                if (typeof window.petpalAwardGusRareHat !== 'function' || !window.petpalAwardGusRareHat(childId, hatId)) {
+                    alert('Please save the event as a manual rare-hat event first.');
+                    return;
+                }
+                render();
+            });
+        });
+    }
+
+    // NEW: Re-render after the v45 rare-hat panel appears or after existing portal renders.
+    function schedule() {
+        setTimeout(render, 0);
+        setTimeout(render, 200);
+        setTimeout(render, 600);
+    }
+
+    var previousParentRender = window.renderParentPortal;
+    if (typeof previousParentRender === 'function' && !previousParentRender.__newV46RareHatRewardWrapped) {
+        var wrappedParentRender = function() {
+            var result = previousParentRender.apply(this, arguments);
+            schedule();
+            return result;
+        };
+        wrappedParentRender.__newV46RareHatRewardWrapped = true;
+        window.renderParentPortal = wrappedParentRender;
+    }
+
+    document.addEventListener('DOMContentLoaded', schedule);
+    window.petpalRefreshGusRareHatRewardSelector = schedule;
+})();
+</script>
+
+<!-- NEW: V47 KIDS PORTAL GREETING ALWAYS FIRST -->
+<script>
+(function newV47KidsPortalGreetingFirst() {
+    'use strict';
+
+    // NEW: The existing Kids Portal greeting/banner is the portal title. Keep that
+    // existing element at the very top of the Kids Portal without changing its styling.
+    function newV47FindGreeting() {
+        var host = document.getElementById('kidsPortalView');
+        if (!host) return null;
+
+        var nameNode = document.getElementById('kidsHeaderName');
+        if (nameNode) {
+            var candidate = nameNode.closest('div.bg-gradient-to-r');
+            if (candidate && host.contains(candidate)) return candidate;
+        }
+
+        return host.querySelector('div.bg-gradient-to-r');
+    }
+
+    function newV47KeepGreetingFirst() {
+        try {
+            var host = document.getElementById('kidsPortalView');
+            var greeting = newV47FindGreeting();
+            if (!host || !greeting) return;
+
+            greeting.setAttribute('data-new-v47-kids-portal-title', 'true');
+            if (host.firstElementChild !== greeting) {
+                host.insertBefore(greeting, host.firstElementChild);
+            }
+        } catch (e) {}
+    }
+
+    // NEW: Apply after every normal Kids Portal render.
+    var newV47OriginalRender = window.renderKidsPortal;
+    if (typeof newV47OriginalRender === 'function' && !newV47OriginalRender.__newV47GreetingFirstWrapped) {
+        var newV47WrappedRender = function() {
+            var result = newV47OriginalRender.apply(this, arguments);
+            newV47KeepGreetingFirst();
+            setTimeout(newV47KeepGreetingFirst, 0);
+            return result;
+        };
+        newV47WrappedRender.__newV47GreetingFirstWrapped = true;
+        window.renderKidsPortal = newV47WrappedRender;
+    }
+
+    // NEW: If another isolated feature rebuilds or reorders Kids Portal sections,
+    // automatically restore the greeting to the first position.
+    document.addEventListener('DOMContentLoaded', function() {
+        newV47KeepGreetingFirst();
+
+        var host = document.getElementById('kidsPortalView');
+        if (host && typeof MutationObserver !== 'undefined') {
+            var observer = new MutationObserver(function() {
+                if (host.firstElementChild !== newV47FindGreeting()) {
+                    newV47KeepGreetingFirst();
+                }
+            });
+            observer.observe(host, { childList: true });
+        }
+    });
+
+    // NEW: Public helper for future isolated UI changes.
+    window.petpalKeepKidsPortalGreetingFirst = newV47KeepGreetingFirst;
+})();
+</script>
+
+<!-- NEW: V48 KIDS PORTAL SECTION LAYOUT -->
+<script>
+(function newV48KidsPortalSectionLayout() {
+    'use strict';
+
+    // NEW: Keep the existing rendered cards intact; this module only changes their DOM order.
+    var NEW_V48_LAYOUT_ID = 'newV48KidsPortalLayout';
+    var NEW_V48_HAT_ROW_ID = 'newV48GusHatRow';
+    var NEW_V48_HAT_RIGHT_ID = 'newV48GusHatRightColumn';
+
+    function newV48FindMainGrid(host) {
+        if (!host) return null;
+        return host.querySelector('.grid.grid-cols-1.lg\\:grid-cols-12');
+    }
+
+    function newV48FindGreeting(host) {
+        if (!host) return null;
+        var name = document.getElementById('kidsHeaderName');
+        if (!name) return null;
+        var banner = name.closest('.bg-gradient-to-r');
+        return banner && banner.parentElement === host ? banner : null;
+    }
+
+    function newV48FindGusCard(grid) {
+        if (!grid) return null;
+        return Array.prototype.find.call(grid.children, function(node) {
+            return node.querySelector && node.querySelector('#gusSvg');
+        }) || null;
+    }
+
+    function newV48FindChoreCard(grid) {
+        if (!grid) return null;
+        return Array.prototype.find.call(grid.children, function(node) {
+            return node.querySelector && node.querySelector('#kidsChoreList');
+        }) || null;
+    }
+
+    function newV48EnsureHatRow(host) {
+        var row = document.getElementById(NEW_V48_HAT_ROW_ID);
+        if (!row) {
+            row = document.createElement('div');
+            row.id = NEW_V48_HAT_ROW_ID;
+            row.className = 'grid grid-cols-1 lg:grid-cols-12 gap-6 items-start';
+            row.setAttribute('data-new-v48-layout', 'hat-row');
+        }
+
+        var closet = document.getElementById('newGusHatPanel');
+        var progress = document.querySelector('[data-new-v44-hat-progress="true"]');
+        var rare = document.getElementById('newGusRareHatKidsPanel');
+
+        if (closet) {
+            // NEW: The Hat Progress card belongs beside the closet, not inside it.
+            if (progress && progress.parentElement === closet) {
+                closet.removeChild(progress);
+            }
+
+            if (closet.parentElement !== row) row.appendChild(closet);
+            closet.classList.remove('lg:col-span-5', 'lg:col-span-7', 'lg:col-span-12');
+            closet.classList.add('lg:col-span-7');
+            closet.style.width = '';
+        }
+
+        var right = document.getElementById(NEW_V48_HAT_RIGHT_ID);
+        if (!right) {
+            right = document.createElement('div');
+            right.id = NEW_V48_HAT_RIGHT_ID;
+            right.className = 'lg:col-span-5 space-y-6';
+            right.setAttribute('data-new-v48-layout', 'hat-right');
+        }
+        if (right.parentElement !== row) row.appendChild(right);
+
+        if (progress && progress.parentElement !== right) right.appendChild(progress);
+        if (rare && rare.parentElement !== right) right.appendChild(rare);
+
+        // NEW: Keep the existing visual card styling; only grid placement is adjusted.
+        if (progress) progress.classList.add('w-full');
+        if (rare) rare.classList.add('w-full');
+
+        var greeting = newV48FindGreeting(host);
+        if (greeting && row.parentElement !== host) {
+            host.insertBefore(row, greeting.nextSibling);
+        }
+
+        return row;
+    }
+
+    function newV48Arrange() {
+        try {
+            var host = document.getElementById('kidsPortalView');
+            if (!host || (typeof appData !== 'undefined' && appData.isParentMode)) return;
+
+            var greeting = newV48FindGreeting(host);
+            var grid = newV48FindMainGrid(host);
+            if (!greeting || !grid) return;
+
+            var gusCard = newV48FindGusCard(grid);
+            var choreCard = newV48FindChoreCard(grid);
+            if (!gusCard || !choreCard) return;
+
+            // NEW: Remove the Hat Closet from the Gus card before positioning the Gus area.
+            var closet = document.getElementById('newGusHatPanel');
+            var progress = document.querySelector('[data-new-v44-hat-progress="true"]');
+            var rare = document.getElementById('newGusRareHatKidsPanel');
+            var hatRow = newV48EnsureHatRow(host);
+
+            // NEW: The Gus visual card is the complete Gus area, including its existing
+            // happiness display, picture, speech bubble and Treat/Groom/Fetch buttons.
+            if (gusCard.parentElement !== host) host.insertBefore(gusCard, greeting.nextSibling);
+            gusCard.classList.remove('lg:col-span-5', 'lg:col-span-7', 'lg:col-span-12');
+            gusCard.classList.add('w-full');
+
+            // NEW: The Hat row sits immediately below the Gus area.
+            if (hatRow.parentElement !== host) host.insertBefore(hatRow, gusCard.nextSibling);
+            else if (hatRow !== gusCard.nextSibling) host.insertBefore(hatRow, gusCard.nextSibling);
+
+            // NEW: Chores are the next major section, below the hat row.
+            if (grid.parentElement === host) grid.remove();
+            if (choreCard.parentElement !== host) host.appendChild(choreCard);
+            choreCard.classList.remove('lg:col-span-7', 'lg:col-span-5', 'lg:col-span-12');
+            choreCard.classList.add('w-full');
+
+            // NEW: Keep the Hat Closet on the left and Hat Progress/Rare Events on the right.
+            if (closet && closet.parentElement !== hatRow) hatRow.appendChild(closet);
+            if (progress && progress.parentElement !== document.getElementById(NEW_V48_HAT_RIGHT_ID)) {
+                document.getElementById(NEW_V48_HAT_RIGHT_ID).appendChild(progress);
+            }
+            if (rare && rare.parentElement !== document.getElementById(NEW_V48_HAT_RIGHT_ID)) {
+                document.getElementById(NEW_V48_HAT_RIGHT_ID).appendChild(rare);
+            }
+
+            host.setAttribute('data-new-v48-layout-applied', 'true');
+        } catch (e) {
+            // NEW: Layout-only safety guard; existing app behaviour remains untouched.
+        }
+    }
+
+    function newV48Schedule() {
+        setTimeout(newV48Arrange, 0);
+        setTimeout(newV48Arrange, 100);
+        setTimeout(newV48Arrange, 300);
+        setTimeout(newV48Arrange, 700);
+    }
+
+    // NEW: Re-apply after the existing Kids Portal renderer redraws its dynamic sections.
+    var newV48OriginalKidsRender = window.renderKidsPortal;
+    if (typeof newV48OriginalKidsRender === 'function' && !newV48OriginalKidsRender.__newV48LayoutWrapped) {
+        var newV48WrappedKidsRender = function() {
+            var result = newV48OriginalKidsRender.apply(this, arguments);
+            newV48Schedule();
+            return result;
+        };
+        newV48WrappedKidsRender.__newV48LayoutWrapped = true;
+        window.renderKidsPortal = newV48WrappedKidsRender;
+    }
+
+    // NEW: Observe only the Kids Portal so dynamically created Hat/Events panels are
+    // repositioned without modifying any of their rendering logic.
+    document.addEventListener('DOMContentLoaded', function() {
+        newV48Schedule();
+        setTimeout(function() {
+            var host = document.getElementById('kidsPortalView');
+            if (!host || typeof MutationObserver === 'undefined') return;
+            var observer = new MutationObserver(function() {
+                newV48Arrange();
+            });
+            observer.observe(host, { childList: true, subtree: true });
+        }, 100);
+    });
+
+    window.petpalArrangeKidsPortalSections = newV48Arrange;
+})();
+</script>
+
+<!-- NEW: V49 RARE HATS BELOW HAT CLOSET LAYOUT -->
+<script>
+(function newV49RareHatsBelowClosetLayout() {
+    'use strict';
+
+    function newV49ArrangeRareHat() {
+        try {
+            var row = document.getElementById('newV48GusHatLayoutRow');
+            var rare = document.getElementById('newGusRareHatKidsPanel');
+            if (!row || !rare) return;
+
+            var right = document.getElementById('newV48GusHatRightColumn');
+            if (right && rare.parentElement === right) right.removeChild(rare);
+
+            if (rare.parentElement !== row) row.appendChild(rare);
+            else row.appendChild(rare);
+
+            rare.classList.remove('lg:col-span-5', 'lg:col-span-7');
+            rare.classList.add('lg:col-span-12', 'w-full');
+            rare.setAttribute('data-new-v49-layout', 'rare-hats-below-closet');
+        } catch (e) {}
+    }
+
+    function newV49Schedule() {
+        setTimeout(newV49ArrangeRareHat, 0);
+        setTimeout(newV49ArrangeRareHat, 100);
+        setTimeout(newV49ArrangeRareHat, 300);
+        setTimeout(newV49ArrangeRareHat, 700);
+    }
+
+    var newV49OriginalArrange = window.petpalArrangeKidsPortalSections;
+    if (typeof newV49OriginalArrange === 'function' && !newV49OriginalArrange.__newV49Wrapped) {
+        var newV49WrappedArrange = function() {
+            var result = newV49OriginalArrange.apply(this, arguments);
+            newV49Schedule();
+            return result;
+        };
+        newV49WrappedArrange.__newV49Wrapped = true;
+        window.petpalArrangeKidsPortalSections = newV49WrappedArrange;
+    }
+
+    var newV49OriginalKidsRender = window.renderKidsPortal;
+    if (typeof newV49OriginalKidsRender === 'function' && !newV49OriginalKidsRender.__newV49Wrapped) {
+        var newV49WrappedKidsRender = function() {
+            var result = newV49OriginalKidsRender.apply(this, arguments);
+            newV49Schedule();
+            return result;
+        };
+        newV49WrappedKidsRender.__newV49Wrapped = true;
+        window.renderKidsPortal = newV49WrappedKidsRender;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        newV49Schedule();
+        setTimeout(function() {
+            var host = document.getElementById('kidsPortalView');
+            if (!host || typeof MutationObserver === 'undefined') return;
+            var observer = new MutationObserver(function() {
+                newV49ArrangeRareHat();
+            });
+            observer.observe(host, { childList: true, subtree: true });
+        }, 100);
+    });
+
+    window.petpalArrangeRareHatBelowCloset = newV49ArrangeRareHat;
 })();
 </script>
