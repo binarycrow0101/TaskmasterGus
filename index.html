@@ -7453,7 +7453,7 @@
                 '<div class="text-[10px] font-black uppercase tracking-wider text-indigo-600">Currently Wearing</div>' +
                 '<div class="text-sm font-black text-indigo-900 mt-1">' + (current ? current.emoji + ' ' + current.name : '🐶 No hat') + '</div>' +
             '</div>' +
-            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Gus can not wait for his next hat!</div>') +
+            (next ? '<div class="rounded-2xl bg-amber-50 border border-amber-200 p-3 mb-3"><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Next Hat</div><div class="text-sm font-black text-amber-900 mt-1">' + next.emoji + ' ' + next.name + '</div><div class="text-[11px] font-bold text-amber-700 mt-1">' + progressText + '</div><div class="h-2 bg-white rounded-full overflow-hidden mt-2 border border-amber-100"><div class="h-full bg-amber-400 rounded-full" style="width:' + Math.min(100, Math.round((childState.lifetimeHatStars / next.requirement) * 100)) + '%"></div></div></div>' : '<div class="rounded-2xl bg-slate-50 border border-slate-200 p-3 mb-3 text-xs font-bold text-slate-600">Gus is excited for his next hat!</div>') +
             '<div class="flex flex-wrap gap-2">' + collectionHtml + '</div>' +
             (unlocked.length ? '<button type="button" data-new-gus-hat-wear="" class="mt-3 text-xs font-bold text-slate-500 hover:text-slate-800">🐶 No Hat</button>' : '');
 
@@ -9667,7 +9667,7 @@
             defaultTarget: 5,
             defaultStart: '2026-10-01',
             defaultEnd: '2026-10-31',
-            artFile: 'halloween_rare_hat_pumpkin.svg'
+            artFile: 'halloween_rare_hat.svg'
         }
     ];
 
@@ -10743,5 +10743,1032 @@
     });
 
     window.petpalArrangeRareHatBelowCloset = newV49ArrangeRareHat;
+})();
+</script>
+
+
+<!-- NEW: V50 GUS HAPPINESS DECAY, NEW INTERACTION GAINS, AND MOOD POSE SYSTEM -->
+<script>
+(function newV50GusHappinessAndMoodSystem() {
+    'use strict';
+
+    // NEW: All V50 state is isolated from the existing PetPal data model.
+    var NEW_V50_STATE_KEY = 'petpalGusHappinessMoodStateV50';
+    var NEW_V50_TICK_MS = 2 * 60 * 60 * 1000;
+    var NEW_V50_TICK_AMOUNT = 1;
+    var NEW_V50_MISSED_DAY_AMOUNT = 10;
+    var NEW_V50_MAX_TICKS_PER_DAY = 4;
+    var newV50Timer = null;
+
+    // NEW: The requested happiness gains. Existing Gus Points and Screen Time costs remain unchanged.
+    var NEW_V50_INTERACTION_GAINS = {
+        treat: 3,
+        brush: 5,
+        play: 10
+    };
+
+    // NEW: Read/write only the isolated V50 state.
+    function newV50ReadState() {
+        try {
+            var raw = localStorage.getItem(NEW_V50_STATE_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function newV50WriteState(state) {
+        try { localStorage.setItem(NEW_V50_STATE_KEY, JSON.stringify(state || {})); } catch (e) {}
+    }
+
+    // NEW: Use local calendar dates so the daily penalty follows the family's local day.
+    function newV50DateKey(date) {
+        var d = new Date(date || new Date());
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function newV50DayStart(date) {
+        var d = new Date(date || new Date());
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+
+    function newV50DaysBetween(fromKey, toKey) {
+        if (!fromKey || !toKey) return 0;
+        var from = new Date(fromKey + 'T00:00:00');
+        var to = new Date(toKey + 'T00:00:00');
+        if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) return 0;
+        return Math.max(0, Math.floor((to.getTime() - from.getTime()) / 86400000));
+    }
+
+    function newV50GetChild() {
+        try {
+            if (typeof getActiveChild === 'function') return getActiveChild();
+        } catch (e) {}
+        try {
+            if (window.appData && Array.isArray(window.appData.children)) {
+                return window.appData.children.find(function(c) { return c.id === window.appData.activeChildId; }) || window.appData.children[0];
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function newV50EnsureChildState(state, child) {
+        if (!child || !child.id) return null;
+        if (!state[child.id] || typeof state[child.id] !== 'object') {
+            state[child.id] = {
+                lastChoreDate: null,
+                lastTickAt: Date.now(),
+                tickDate: newV50DateKey(),
+                ticksToday: 0
+            };
+        }
+        var entry = state[child.id];
+        if (typeof entry.lastTickAt !== 'number' || !Number.isFinite(entry.lastTickAt)) entry.lastTickAt = Date.now();
+        if (typeof entry.ticksToday !== 'number' || !Number.isFinite(entry.ticksToday)) entry.ticksToday = 0;
+        if (!entry.tickDate) entry.tickDate = newV50DateKey();
+        return entry;
+    }
+
+    // NEW: Apply the missed-day penalty exactly once per calendar day without changing
+    // the existing happiness functions or storage fields.
+    function newV50ApplyMissedDayPenalty(child, entry, todayKey) {
+        if (!child || !entry || !entry.lastChoreDate) return false;
+        var missedDays = newV50DaysBetween(entry.lastChoreDate, todayKey);
+        if (missedDays <= 0) return false;
+
+        // NEW: Every day after the last completed chore contributes -10 happiness.
+        var penalty = missedDays * NEW_V50_MISSED_DAY_AMOUNT;
+        var before = Number(child.happiness);
+        if (!Number.isFinite(before)) before = 80;
+        child.happiness = Math.max(0, before - penalty);
+        return true;
+    }
+
+    // NEW: Apply the slow daytime tick only while today's chores have not yet been completed.
+    function newV50ApplySlowTick(child, entry, now) {
+        if (!child || !entry) return false;
+        var todayKey = newV50DateKey(now);
+        var changed = false;
+
+        if (entry.tickDate !== todayKey) {
+            entry.tickDate = todayKey;
+            entry.ticksToday = 0;
+            entry.lastTickAt = newV50DayStart(now);
+        }
+
+        // NEW: Completing any chore today pauses the slow happiness tick for the rest of today.
+        if (entry.lastChoreDate === todayKey) {
+            entry.lastTickAt = now;
+            return false;
+        }
+
+        var elapsed = Math.max(0, now - Number(entry.lastTickAt || now));
+        var availableTicks = Math.floor(elapsed / NEW_V50_TICK_MS);
+        var remainingTicks = Math.max(0, NEW_V50_MAX_TICKS_PER_DAY - Number(entry.ticksToday || 0));
+        var ticks = Math.min(availableTicks, remainingTicks);
+        if (ticks <= 0) return false;
+
+        var before = Number(child.happiness);
+        if (!Number.isFinite(before)) before = 80;
+        child.happiness = Math.max(0, before - (ticks * NEW_V50_TICK_AMOUNT));
+        entry.ticksToday = Number(entry.ticksToday || 0) + ticks;
+        entry.lastTickAt += ticks * NEW_V50_TICK_MS;
+        changed = true;
+        return changed;
+    }
+
+    // NEW: Process the current child's time-based happiness state on render/page load.
+    function newV50ProcessHappiness(child) {
+        if (!child || !child.id) return false;
+        var state = newV50ReadState();
+        var entry = newV50EnsureChildState(state, child);
+        var now = Date.now();
+        var todayKey = newV50DateKey(now);
+        var changed = false;
+
+        if (entry.lastChoreDate && newV50DaysBetween(entry.lastChoreDate, todayKey) > 0) {
+            changed = newV50ApplyMissedDayPenalty(child, entry, todayKey) || changed;
+            entry.lastChoreDate = todayKey;
+            entry.lastTickAt = newV50DayStart(now);
+            entry.tickDate = todayKey;
+            entry.ticksToday = 0;
+        }
+
+        changed = newV50ApplySlowTick(child, entry, now) || changed;
+        newV50WriteState(state);
+
+        if (changed) {
+            try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+        }
+        return changed;
+    }
+
+    // NEW: Record that a child completed a chore today. This is deliberately attached
+    // to the existing completion entry point rather than changing that function.
+    function newV50RecordChoreCompletion() {
+        var child = newV50GetChild();
+        if (!child || !child.id) return;
+        var state = newV50ReadState();
+        var entry = newV50EnsureChildState(state, child);
+        var now = Date.now();
+        entry.lastChoreDate = newV50DateKey(now);
+        entry.lastTickAt = now;
+        entry.tickDate = entry.lastChoreDate;
+        entry.ticksToday = 0;
+        newV50WriteState(state);
+    }
+
+    // NEW: Adjust the happiness result after the untouched original interaction completes.
+    // The original function's costs, points, screen time, animation, sound, and rendering stay intact.
+    function newV50ApplyRequestedInteractionGain(action, pointsBefore) {
+        var child = newV50GetChild();
+        if (!child) return false;
+        var cost = action === 'brush' ? 15 : (action === 'play' ? 20 : 10);
+        var pointsAfter = Number(child.gusPoints || 0);
+        if (!(pointsAfter < pointsBefore && pointsBefore - pointsAfter === cost)) return false;
+
+        var oldGain = action === 'brush' ? 30 : (action === 'play' ? 40 : 20);
+        var newGain = Object.prototype.hasOwnProperty.call(NEW_V50_INTERACTION_GAINS, action) ? NEW_V50_INTERACTION_GAINS[action] : oldGain;
+        var current = Number(child.happiness);
+        if (!Number.isFinite(current)) current = 80;
+
+        // NEW: Remove the original interaction gain and apply the requested gain instead.
+        child.happiness = Math.max(0, Math.min(100, current - oldGain + newGain));
+        try { if (typeof saveData === 'function') saveData(); } catch (e) {}
+        return true;
+    }
+
+    // NEW: Keep the existing render cycle but make the current child's happiness decay state current first.
+    var newV50OriginalRenderKidsPortal = window.renderKidsPortal;
+    if (typeof newV50OriginalRenderKidsPortal === 'function' && !newV50OriginalRenderKidsPortal.__newV50Wrapped) {
+        var newV50WrappedRenderKidsPortal = function() {
+            var child = newV50GetChild();
+            newV50ProcessHappiness(child);
+            var result = newV50OriginalRenderKidsPortal.apply(this, arguments);
+            newV50ApplyMoodVisuals();
+            return result;
+        };
+        newV50WrappedRenderKidsPortal.__newV50Wrapped = true;
+        window.renderKidsPortal = newV50WrappedRenderKidsPortal;
+    }
+
+    // NEW: Preserve the existing interaction function by wrapping it rather than editing it.
+    var newV50OriginalInteractWithGus = window.interactWithGus;
+    if (typeof newV50OriginalInteractWithGus === 'function' && !newV50OriginalInteractWithGus.__newV50Wrapped) {
+        var newV50WrappedInteractWithGus = function(action) {
+            var child = newV50GetChild();
+            var pointsBefore = child ? Number(child.gusPoints || 0) : 0;
+            var result = newV50OriginalInteractWithGus.apply(this, arguments);
+            newV50ApplyRequestedInteractionGain(action, pointsBefore);
+            newV50ApplyMoodVisuals();
+            return result;
+        };
+        newV50WrappedInteractWithGus.__newV50Wrapped = true;
+        window.interactWithGus = newV50WrappedInteractWithGus;
+    }
+
+    // NEW: Preserve the existing chore completion function by recording activity after it succeeds.
+    var newV50OriginalCompleteChoreByKid = window.completeChoreByKid;
+    if (typeof newV50OriginalCompleteChoreByKid === 'function' && !newV50OriginalCompleteChoreByKid.__newV50Wrapped) {
+        var newV50WrappedCompleteChoreByKid = function() {
+            var beforeChild = newV50GetChild();
+            var choreId = arguments[0];
+            var day = arguments[1];
+            var beforeStatus = null;
+            try {
+                if (beforeChild && Array.isArray(beforeChild.chores)) {
+                    var beforeChore = beforeChild.chores.find(function(c) { return c.id === choreId; });
+                    if (beforeChore && beforeChore.statusByDay) beforeStatus = beforeChore.statusByDay[day];
+                }
+            } catch (e) {}
+
+            var result = newV50OriginalCompleteChoreByKid.apply(this, arguments);
+
+            try {
+                var afterChild = newV50GetChild();
+                var afterChore = afterChild && Array.isArray(afterChild.chores) ? afterChild.chores.find(function(c) { return c.id === choreId; }) : null;
+                var afterStatus = afterChore && afterChore.statusByDay ? afterChore.statusByDay[day] : null;
+                if (afterStatus && afterStatus !== beforeStatus) newV50RecordChoreCompletion();
+            } catch (e) {}
+
+            return result;
+        };
+        newV50WrappedCompleteChoreByKid.__newV50Wrapped = true;
+        window.completeChoreByKid = newV50WrappedCompleteChoreByKid;
+    }
+
+    // NEW: Build a dedicated mood/pose group around the existing Gus artwork. The existing
+    // hat layer remains a separate sibling so the same pose transform can be applied to it.
+    function newV50EnsurePoseLayers() {
+        var gusSvg = document.getElementById('gusSvg');
+        if (!gusSvg || typeof document.createElementNS !== 'function') return null;
+
+        var pose = document.getElementById('newV50GusMoodPoseLayer');
+        var hat = document.getElementById('newGusHatSvgLayer');
+
+        if (!pose) {
+            pose = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            pose.setAttribute('id', 'newV50GusMoodPoseLayer');
+            pose.setAttribute('pointer-events', 'none');
+
+            var children = Array.prototype.slice.call(gusSvg.childNodes);
+            children.forEach(function(node) {
+                if (node === pose || (node.nodeType === 1 && node.getAttribute && node.getAttribute('id') === 'newGusHatSvgLayer')) return;
+                pose.appendChild(node);
+            });
+            gusSvg.insertBefore(pose, gusSvg.firstChild);
+        }
+
+        // NEW: If the existing artwork renderer rebuilt Gus, collect any loose artwork back into the pose layer.
+        Array.prototype.slice.call(gusSvg.childNodes).forEach(function(node) {
+            if (node === pose || node === hat) return;
+            if (node.nodeType === 1 && node.getAttribute && node.getAttribute('id') === 'newGusHatSvgLayer') return;
+            pose.appendChild(node);
+        });
+
+        return pose;
+    }
+
+    function newV50MoodBand(happiness) {
+        if (happiness >= 80) return 'very-happy';
+        if (happiness >= 60) return 'happy';
+        if (happiness >= 40) return 'okay';
+        if (happiness >= 20) return 'sad';
+        return 'very-sad';
+    }
+
+    // NEW: Apply a pose transform to both Gus artwork and the existing hat layer.
+    // This is the key compatibility point: hats never get redrawn or independently animated.
+    function newV50ApplyPoseTransform(transform) {
+        var pose = newV50EnsurePoseLayers();
+        if (!pose) return;
+        var hat = document.getElementById('newGusHatSvgLayer');
+        pose.setAttribute('transform', transform);
+        if (hat) hat.setAttribute('transform', transform);
+    }
+
+    // NEW: Add only small expression details; the original Gus artwork is not replaced.
+    function newV50ApplyExpressionOverlay(band) {
+        var pose = newV50EnsurePoseLayers();
+        if (!pose) return;
+
+        var old = document.getElementById('newV50GusMoodExpression');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+
+        var group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.setAttribute('id', 'newV50GusMoodExpression');
+        group.setAttribute('pointer-events', 'none');
+
+        if (band === 'very-happy' || band === 'happy') {
+            group.innerHTML = '<path d="M86 98 Q100 108 114 98" fill="none" stroke="#1F2937" stroke-width="2.5" stroke-linecap="round" opacity=".55"/>';
+        } else if (band === 'okay') {
+            group.innerHTML = '<path d="M90 102 Q100 100 110 102" fill="none" stroke="#1F2937" stroke-width="2.5" stroke-linecap="round" opacity=".55"/>';
+        } else if (band === 'sad') {
+            group.innerHTML = '<path d="M88 106 Q100 97 112 106" fill="none" stroke="#374151" stroke-width="2.8" stroke-linecap="round" opacity=".8"/><path d="M76 69 Q84 64 91 68 M113 68 Q121 64 128 69" fill="none" stroke="#374151" stroke-width="3" stroke-linecap="round" opacity=".7"/>';
+        } else {
+            group.innerHTML = '<path d="M87 108 Q100 96 113 108" fill="none" stroke="#374151" stroke-width="3" stroke-linecap="round"/><path d="M75 68 Q83 62 91 67 M113 67 Q121 62 129 68" fill="none" stroke="#374151" stroke-width="3" stroke-linecap="round"/><circle cx="101" cy="112" r="2" fill="#93C5FD" opacity=".8"/>';
+        }
+
+        pose.appendChild(group);
+    }
+
+    // NEW: Map happiness to a gentle head/body pose without replacing the existing Gus graphic.
+    function newV50ApplyMoodVisuals() {
+        var child = newV50GetChild();
+        if (!child) return;
+        var happiness = Number(child.happiness);
+        if (!Number.isFinite(happiness)) happiness = 80;
+        happiness = Math.max(0, Math.min(100, happiness));
+        var band = newV50MoodBand(happiness);
+        var transform = 'translate(0 0) rotate(0 100 105)';
+
+        if (band === 'happy') transform = 'translate(0 1) rotate(-1 100 105)';
+        if (band === 'okay') transform = 'translate(0 3) rotate(1 100 105)';
+        if (band === 'sad') transform = 'translate(0 6) rotate(3 100 105)';
+        if (band === 'very-sad') transform = 'translate(2 9) rotate(6 100 105)';
+
+        newV50ApplyPoseTransform(transform);
+        newV50ApplyExpressionOverlay(band);
+    }
+
+    // NEW: Reapply the shared pose whenever the existing hat renderer recreates its layer.
+    function newV50ScheduleMoodVisuals() {
+        setTimeout(newV50ApplyMoodVisuals, 0);
+        setTimeout(newV50ApplyMoodVisuals, 100);
+        setTimeout(newV50ApplyMoodVisuals, 300);
+        setTimeout(newV50ApplyMoodVisuals, 700);
+    }
+
+    // NEW: Refresh after the existing hat layer changes, without modifying its code.
+    document.addEventListener('DOMContentLoaded', function() {
+        newV50ProcessHappiness(newV50GetChild());
+        newV50ScheduleMoodVisuals();
+
+        // NEW: A lightweight timer gives the slow daytime tick without changing layout.
+        newV50Timer = setInterval(function() {
+            var child = newV50GetChild();
+            if (!child) return;
+            if (newV50ProcessHappiness(child)) {
+                try { if (typeof renderKidsPortal === 'function') renderKidsPortal(); } catch (e) {}
+            } else {
+                newV50ApplyMoodVisuals();
+            }
+        }, 60 * 1000);
+
+        if (typeof MutationObserver !== 'undefined') {
+            var gusSvg = document.getElementById('gusSvg');
+            if (gusSvg) {
+                var observer = new MutationObserver(function() {
+                    var hat = document.getElementById('newGusHatSvgLayer');
+                    if (hat && !hat.getAttribute('transform')) newV50ScheduleMoodVisuals();
+                });
+                observer.observe(gusSvg, { childList: true, subtree: false });
+            }
+        }
+    });
+
+    // NEW: Public helpers for testing/diagnostics without changing existing functions.
+    window.petpalV50RefreshGusMood = newV50ApplyMoodVisuals;
+    window.petpalV50GetGusHappinessBand = function() {
+        var child = newV50GetChild();
+        var value = child ? Number(child.happiness) : 0;
+        if (!Number.isFinite(value)) value = 80;
+        return newV50MoodBand(value);
+    };
+})();
+</script>
+
+<!-- NEW: V51 PARENT GUS HAPPINESS CONTROLS -->
+<script>
+(function newV51ParentGusHappinessControls() {
+    'use strict';
+
+    var NEW_V51_PANEL_ID = 'newV51GusHappinessParentPanel';
+
+    // NEW: Read the current app children without changing the existing data model.
+    function newV51GetChildren() {
+        try {
+            if (window.appData && Array.isArray(window.appData.children)) return window.appData.children;
+        } catch (e) {}
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var parsed = raw ? JSON.parse(raw) : null;
+            if (parsed && Array.isArray(parsed.children)) return parsed.children;
+        } catch (e) {}
+        return [];
+    }
+
+    // NEW: Find a child by id without altering any existing child/profile helpers.
+    function newV51FindChild(childId) {
+        var children = newV51GetChildren();
+        for (var i = 0; i < children.length; i++) {
+            if (String(children[i].id) === String(childId)) return children[i];
+        }
+        return null;
+    }
+
+    // NEW: Persist a manually selected Gus happiness value while preserving the existing app data structure.
+    function newV51SetHappiness(childId, value) {
+        var child = newV51FindChild(childId);
+        if (!child) return false;
+
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) return false;
+        numeric = Math.max(0, Math.min(100, Math.round(numeric)));
+
+        child.happiness = numeric;
+
+        try {
+            if (typeof window.saveData === 'function') window.saveData();
+            else localStorage.setItem('petpal_app_data', JSON.stringify(window.appData));
+        } catch (e) {}
+
+        try {
+            if (typeof window.renderParentPortal === 'function') window.renderParentPortal();
+        } catch (e) {}
+        try {
+            if (typeof window.renderKidsPortal === 'function') window.renderKidsPortal();
+        } catch (e) {}
+        try {
+            if (typeof window.petpalV50RefreshGusMood === 'function') window.petpalV50RefreshGusMood();
+        } catch (e) {}
+
+        return true;
+    }
+
+    // NEW: Build the isolated Parent Portal control card inside the existing Settings tab.
+    function newV51RenderParentPanel() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var children = newV51GetChildren();
+        if (!children.length) return;
+
+        var panel = document.getElementById(NEW_V51_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = NEW_V51_PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstChild);
+        }
+
+        panel.innerHTML =
+            '<div class="flex items-center justify-between gap-3 mb-3">' +
+                '<div>' +
+                    '<div class="text-lg font-black text-slate-800">🐶 Gus Happiness</div>' +
+                    '<div class="text-xs text-slate-500">Set Gus’s current happiness. His normal decay, rewards and interactions continue afterwards.</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="space-y-3">' +
+                children.map(function(child) {
+                    var value = Number(child.happiness);
+                    if (!Number.isFinite(value)) value = 80;
+                    value = Math.max(0, Math.min(100, Math.round(value)));
+                    return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">' +
+                        '<div class="flex items-center justify-between gap-3 mb-2">' +
+                            '<span class="font-black text-slate-800">' + String(child.name || 'Child') + '</span>' +
+                            '<span data-new-v51-current="' + String(child.id) + '" class="text-sm font-black text-amber-700">' + value + ' / 100</span>' +
+                        '</div>' +
+                        '<div class="flex flex-wrap items-center gap-2">' +
+                            '<button type="button" data-new-v51-adjust="-1" data-new-v51-child="' + String(child.id) + '" class="px-3 py-2 rounded-xl bg-slate-200 font-black">−1</button>' +
+                            '<button type="button" data-new-v51-adjust="1" data-new-v51-child="' + String(child.id) + '" class="px-3 py-2 rounded-xl bg-slate-200 font-black">+1</button>' +
+                            '<input type="number" min="0" max="100" step="1" value="' + value + '" data-new-v51-input="' + String(child.id) + '" class="w-24 px-3 py-2 rounded-xl border border-slate-300 bg-white font-black text-center">' +
+                            '<button type="button" data-new-v51-set="' + String(child.id) + '" class="px-4 py-2 rounded-xl bg-amber-400 text-slate-900 font-black">Set Happiness</button>' +
+                        '</div>' +
+                    '</div>';
+                }).join('') +
+            '</div>';
+
+        panel.querySelectorAll('[data-new-v51-adjust]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-new-v51-child');
+                var child = newV51FindChild(childId);
+                if (!child) return;
+                var current = Number(child.happiness);
+                if (!Number.isFinite(current)) current = 80;
+                newV51SetHappiness(childId, current + Number(button.getAttribute('data-new-v51-adjust')));
+                newV51RenderParentPanel();
+            });
+        });
+
+        panel.querySelectorAll('[data-new-v51-set]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var childId = button.getAttribute('data-new-v51-set');
+                var input = panel.querySelector('[data-new-v51-input="' + childId + '"]');
+                if (!input) return;
+                newV51SetHappiness(childId, input.value);
+                newV51RenderParentPanel();
+            });
+        });
+    }
+
+    // NEW: Keep the control available whenever the existing Parent Portal is rebuilt.
+    function newV51ScheduleRender() {
+        setTimeout(newV51RenderParentPanel, 0);
+        setTimeout(newV51RenderParentPanel, 150);
+        setTimeout(newV51RenderParentPanel, 500);
+    }
+
+    var newV51OriginalParentRender = window.renderParentPortal;
+    if (typeof newV51OriginalParentRender === 'function' && !newV51OriginalParentRender.__newV51Wrapped) {
+        var newV51WrappedParentRender = function() {
+            var result = newV51OriginalParentRender.apply(this, arguments);
+            newV51ScheduleRender();
+            return result;
+        };
+        newV51WrappedParentRender.__newV51Wrapped = true;
+        window.renderParentPortal = newV51WrappedParentRender;
+    }
+
+    // NEW: Public helper for controlled parent-side adjustments without replacing existing functions.
+    window.petpalSetGusHappiness = newV51SetHappiness;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        newV51ScheduleRender();
+    });
+})();
+</script>
+
+
+<!-- NEW: V52 PARENT GUS HAPPINESS SETTER RELIABILITY PATCH -->
+<script>
+(function newV52ParentGusHappinessSetterReliability() {
+    'use strict';
+
+    // NEW: Reuse the existing V50 happiness state so a parent-set value becomes the
+    // current baseline for the normal decay system instead of being immediately penalised.
+    var NEW_V52_V50_STATE_KEY = 'petpalGusHappinessMoodStateV50';
+
+    function newV52GetChildren() {
+        try {
+            if (window.appData && Array.isArray(window.appData.children)) return window.appData.children;
+        } catch (e) {}
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var parsed = raw ? JSON.parse(raw) : null;
+            if (parsed && Array.isArray(parsed.children)) return parsed.children;
+        } catch (e) {}
+        return [];
+    }
+
+    function newV52FindChild(childId) {
+        var children = newV52GetChildren();
+        for (var i = 0; i < children.length; i++) {
+            if (String(children[i].id) === String(childId)) return children[i];
+        }
+        return null;
+    }
+
+    function newV52DateKey(date) {
+        var d = new Date(date || new Date());
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function newV52ResetHappinessDecayBaseline(child) {
+        if (!child || !child.id) return;
+        var state = {};
+        try {
+            var raw = localStorage.getItem(NEW_V52_V50_STATE_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') state = parsed;
+        } catch (e) {}
+
+        if (!state[child.id] || typeof state[child.id] !== 'object') state[child.id] = {};
+        var entry = state[child.id];
+        var now = Date.now();
+        var today = newV52DateKey(now);
+
+        // NEW: A parent-set value starts a fresh happiness baseline today.
+        // Normal decay then continues from this point forward.
+        entry.lastTickAt = now;
+        entry.tickDate = today;
+        entry.ticksToday = 0;
+        entry.lastChoreDate = today;
+
+        try { localStorage.setItem(NEW_V52_V50_STATE_KEY, JSON.stringify(state)); } catch (e) {}
+    }
+
+    function newV52UpdateVisibleHappiness(child) {
+        if (!child) return;
+        var value = Number(child.happiness);
+        if (!Number.isFinite(value)) value = 80;
+        value = Math.max(0, Math.min(100, Math.round(value)));
+
+        // NEW: Keep the original Gus happiness bar in sync, including the valid value 0.
+        var bar = document.getElementById('gusHappinessBar');
+        if (bar) bar.style.width = value + '%';
+    }
+
+    function newV52SetHappiness(childId, value) {
+        var child = newV52FindChild(childId);
+        if (!child) return false;
+
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) return false;
+        numeric = Math.max(0, Math.min(100, Math.round(numeric)));
+
+        child.happiness = numeric;
+        newV52ResetHappinessDecayBaseline(child);
+
+        try {
+            if (typeof window.saveData === 'function') window.saveData();
+            else if (window.appData) localStorage.setItem('petpal_app_data', JSON.stringify(window.appData));
+        } catch (e) {}
+
+        // NEW: Do not immediately run renderKidsPortal here. That renderer also runs
+        // the V50 decay processor and was the source of the apparent instant reset.
+        try { newV52UpdateVisibleHappiness(child); } catch (e) {}
+        try { if (typeof window.petpalV50RefreshGusMood === 'function') window.petpalV50RefreshGusMood(); } catch (e) {}
+        return true;
+    }
+
+    // NEW: Replace only the public helper used by the V51 controls; existing app functions remain untouched.
+    window.petpalSetGusHappiness = newV52SetHappiness;
+
+    // NEW: Rebind the existing V51 buttons to the reliable setter after the panel is rendered.
+    function newV52BindButtons() {
+        var panel = document.getElementById('newV51GusHappinessParentPanel');
+        if (!panel) return;
+
+        panel.querySelectorAll('[data-new-v51-adjust]').forEach(function(button) {
+            if (button.getAttribute('data-new-v52-bound') === '1') return;
+            button.setAttribute('data-new-v52-bound', '1');
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                var childId = button.getAttribute('data-new-v51-child');
+                var child = newV52FindChild(childId);
+                if (!child) return;
+                var current = Number(child.happiness);
+                if (!Number.isFinite(current)) current = 80;
+                newV52SetHappiness(childId, current + Number(button.getAttribute('data-new-v51-adjust')));
+                try {
+                    if (typeof window.renderParentPortal === 'function') window.renderParentPortal();
+                } catch (e) {}
+                setTimeout(newV52BindButtons, 0);
+                setTimeout(newV52BindButtons, 150);
+            }, true);
+        });
+
+        panel.querySelectorAll('[data-new-v51-set]').forEach(function(button) {
+            if (button.getAttribute('data-new-v52-bound') === '1') return;
+            button.setAttribute('data-new-v52-bound', '1');
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                var childId = button.getAttribute('data-new-v51-set');
+                var input = panel.querySelector('[data-new-v51-input="' + childId + '"]');
+                if (!input) return;
+                newV52SetHappiness(childId, input.value);
+                try {
+                    if (typeof window.renderParentPortal === 'function') window.renderParentPortal();
+                } catch (e) {}
+                setTimeout(newV52BindButtons, 0);
+                setTimeout(newV52BindButtons, 150);
+            }, true);
+        });
+    }
+
+    function newV52ScheduleBind() {
+        setTimeout(newV52BindButtons, 0);
+        setTimeout(newV52BindButtons, 100);
+        setTimeout(newV52BindButtons, 300);
+        setTimeout(newV52BindButtons, 700);
+    }
+
+    var newV52OriginalParentRender = window.renderParentPortal;
+    if (typeof newV52OriginalParentRender === 'function' && !newV52OriginalParentRender.__newV52Wrapped) {
+        var newV52WrappedParentRender = function() {
+            var result = newV52OriginalParentRender.apply(this, arguments);
+            newV52ScheduleBind();
+            return result;
+        };
+        newV52WrappedParentRender.__newV52Wrapped = true;
+        window.renderParentPortal = newV52WrappedParentRender;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        newV52ScheduleBind();
+    });
+
+    window.petpalV52SetGusHappiness = newV52SetHappiness;
+})();
+</script>
+
+<!-- NEW: V53 DIRECT APPDATA GUS HAPPINESS FIX -->
+<script>
+(function newV53DirectAppDataGusHappinessFix() {
+    'use strict';
+
+    // NEW: The core app keeps appData in a top-level lexical `let`, not window.appData.
+    // NEW: This patch therefore edits the real in-memory child object before saveData().
+    function newV53GetChildren() {
+        try {
+            if (typeof appData !== 'undefined' && appData && Array.isArray(appData.children)) {
+                return appData.children;
+            }
+        } catch (e) {}
+        return [];
+    }
+
+    // NEW: Find the actual in-memory child object used by the core application.
+    function newV53FindChild(childId) {
+        var children = newV53GetChildren();
+        for (var i = 0; i < children.length; i++) {
+            if (String(children[i].id) === String(childId)) return children[i];
+        }
+        return null;
+    }
+
+    // NEW: Reset only the isolated V50 happiness timing state after a parent changes happiness.
+    function newV53ResetDecayBaseline(childId) {
+        var key = 'petpalGusHappinessMoodStateV50';
+        var state = {};
+        try {
+            var raw = localStorage.getItem(key);
+            var parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') state = parsed;
+        } catch (e) {}
+
+        if (!state[childId] || typeof state[childId] !== 'object') state[childId] = {};
+        var entry = state[childId];
+        var now = Date.now();
+        var d = new Date(now);
+        var today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+        entry.lastTickAt = now;
+        entry.tickDate = today;
+        entry.ticksToday = 0;
+        entry.lastChoreDate = today;
+
+        try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {}
+    }
+
+    // NEW: Set happiness on the real appData object, then persist that exact object.
+    function newV53SetHappiness(childId, value) {
+        var child = newV53FindChild(childId);
+        if (!child) return false;
+
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) return false;
+        numeric = Math.max(0, Math.min(100, Math.round(numeric)));
+
+        child.happiness = numeric;
+        newV53ResetDecayBaseline(child.id);
+
+        // NEW: Save the real lexical appData object used by the application.
+        try {
+            if (typeof saveData === 'function') saveData();
+        } catch (e) {}
+
+        // NEW: Refresh the Parent Portal only after the real value has been saved.
+        try {
+            if (typeof renderParentPortal === 'function') renderParentPortal();
+        } catch (e) {}
+
+        // NEW: Refresh Gus's visual mood without invoking the Kids Portal decay/render cycle.
+        try {
+            if (typeof petpalV50RefreshGusMood === 'function') petpalV50RefreshGusMood();
+        } catch (e) {}
+
+        return true;
+    }
+
+    // NEW: Replace the public setter with the direct-appData implementation.
+    window.petpalSetGusHappiness = newV53SetHappiness;
+    window.petpalV53SetGusHappiness = newV53SetHappiness;
+
+    // NEW: Rebind the actual controls with capture-phase handlers so the older V51/V52
+    // listeners cannot run first and overwrite the value.
+    function newV53BindButtons() {
+        var panel = document.getElementById('newV51GusHappinessParentPanel');
+        if (!panel) return;
+
+        panel.querySelectorAll('[data-new-v51-adjust]').forEach(function(button) {
+            if (button.getAttribute('data-new-v53-bound') === '1') return;
+            button.setAttribute('data-new-v53-bound', '1');
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                var childId = button.getAttribute('data-new-v51-child');
+                var child = newV53FindChild(childId);
+                if (!child) return;
+                var current = Number(child.happiness);
+                if (!Number.isFinite(current)) current = 80;
+                newV53SetHappiness(childId, current + Number(button.getAttribute('data-new-v51-adjust')));
+            }, true);
+        });
+
+        panel.querySelectorAll('[data-new-v51-set]').forEach(function(button) {
+            if (button.getAttribute('data-new-v53-bound') === '1') return;
+            button.setAttribute('data-new-v53-bound', '1');
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                var childId = button.getAttribute('data-new-v51-set');
+                var input = panel.querySelector('[data-new-v51-input="' + childId + '"]');
+                if (!input) return;
+                newV53SetHappiness(childId, input.value);
+            }, true);
+        });
+    }
+
+    function newV53ScheduleBind() {
+        setTimeout(newV53BindButtons, 0);
+        setTimeout(newV53BindButtons, 100);
+        setTimeout(newV53BindButtons, 300);
+        setTimeout(newV53BindButtons, 700);
+    }
+
+    var newV53OriginalParentRender = window.renderParentPortal;
+    if (typeof newV53OriginalParentRender === 'function' && !newV53OriginalParentRender.__newV53Wrapped) {
+        var newV53WrappedParentRender = function() {
+            var result = newV53OriginalParentRender.apply(this, arguments);
+            newV53ScheduleBind();
+            return result;
+        };
+        newV53WrappedParentRender.__newV53Wrapped = true;
+        window.renderParentPortal = newV53WrappedParentRender;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        newV53ScheduleBind();
+    });
+})();
+</script>
+
+
+<!-- NEW: V54 ISOLATED GUS HAPPINESS CONTROL REPLACEMENT -->
+<script>
+(function newV54IsolatedGusHappinessControls() {
+    'use strict';
+
+    // NEW: This panel deliberately uses new element IDs so no V51/V52 listener can be attached to it.
+    var PANEL_ID = 'newV54GusHappinessParentPanel';
+
+    // NEW: Read the real lexical appData object used by the original application.
+    function newV54Children() {
+        try {
+            if (typeof appData !== 'undefined' && appData && Array.isArray(appData.children)) return appData.children;
+        } catch (e) {}
+        return [];
+    }
+
+    function newV54FindChild(childId) {
+        var children = newV54Children();
+        for (var i = 0; i < children.length; i++) {
+            if (String(children[i].id) === String(childId)) return children[i];
+        }
+        return null;
+    }
+
+    function newV54DateKey() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // NEW: Reset only the isolated V50 decay clock so the parent's chosen value is the new baseline.
+    function newV54ResetDecay(childId) {
+        var key = 'petpalGusHappinessMoodStateV50';
+        var state = {};
+        try {
+            var raw = localStorage.getItem(key);
+            var parsed = raw ? JSON.parse(raw) : {};
+            if (parsed && typeof parsed === 'object') state = parsed;
+        } catch (e) {}
+        if (!state[childId] || typeof state[childId] !== 'object') state[childId] = {};
+        state[childId].lastTickAt = Date.now();
+        state[childId].tickDate = newV54DateKey();
+        state[childId].ticksToday = 0;
+        state[childId].lastChoreDate = newV54DateKey();
+        try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {}
+    }
+
+    // NEW: Save the actual in-memory appData and verify the saved child value.
+    function newV54Persist(childId, numeric) {
+        try {
+            if (typeof saveData === 'function') saveData();
+        } catch (e) {}
+
+        // NEW: Verification/recovery guard in case another old handler touched storage.
+        try {
+            var raw = localStorage.getItem('petpal_app_data');
+            var saved = raw ? JSON.parse(raw) : null;
+            var savedChild = saved && Array.isArray(saved.children) ? saved.children.find(function(c) {
+                return String(c.id) === String(childId);
+            }) : null;
+            if (!savedChild || Number(savedChild.happiness) !== numeric) {
+                localStorage.setItem('petpal_app_data', JSON.stringify(appData));
+            }
+        } catch (e) {}
+    }
+
+    // NEW: Set happiness without calling renderParentPortal/renderKidsPortal, avoiding the old render conflict.
+    function newV54SetHappiness(childId, value) {
+        var child = newV54FindChild(childId);
+        if (!child) return false;
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) return false;
+        numeric = Math.max(0, Math.min(100, Math.round(numeric)));
+
+        child.happiness = numeric;
+        newV54ResetDecay(child.id);
+        newV54Persist(child.id, numeric);
+
+        // NEW: Update only this isolated panel and Gus's existing visual mood.
+        var current = document.querySelector('[data-new-v54-current="' + String(child.id) + '"]');
+        if (current) current.textContent = numeric + ' / 100';
+        var input = document.querySelector('[data-new-v54-input="' + String(child.id) + '"]');
+        if (input) input.value = numeric;
+        var status = document.querySelector('[data-new-v54-status="' + String(child.id) + '"]');
+        if (status) status.textContent = 'Saved ✓';
+
+        try { if (typeof petpalV50RefreshGusMood === 'function') petpalV50RefreshGusMood(); } catch (e) {}
+        return true;
+    }
+
+    // NEW: Build a completely separate panel and remove the old V51 panel from the visible settings area.
+    function newV54Render() {
+        var host = document.getElementById('parentTabSettings');
+        if (!host) return;
+
+        var old = document.getElementById('newV51GusHappinessParentPanel');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+
+        var panel = document.getElementById(PANEL_ID);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = PANEL_ID;
+            panel.className = 'bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm';
+            host.insertBefore(panel, host.firstChild);
+        }
+
+        var children = newV54Children();
+        panel.innerHTML =
+            '<div class="flex items-center justify-between gap-3 mb-3">' +
+                '<div>' +
+                    '<div class="text-lg font-black text-slate-800">🐶 Gus Happiness</div>' +
+                    '<div class="text-xs text-slate-500">Set Gus’s current happiness. His normal decay, rewards and interactions continue afterwards.</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="space-y-3">' +
+                children.map(function(child) {
+                    var value = Number(child.happiness);
+                    if (!Number.isFinite(value)) value = 80;
+                    value = Math.max(0, Math.min(100, Math.round(value)));
+                    return '<div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">' +
+                        '<div class="flex items-center justify-between gap-3 mb-2">' +
+                            '<span class="font-black text-slate-800">' + String(child.name || 'Child') + '</span>' +
+                            '<span data-new-v54-current="' + String(child.id) + '" class="text-sm font-black text-amber-700">' + value + ' / 100</span>' +
+                        '</div>' +
+                        '<div class="flex flex-wrap items-center gap-2">' +
+                            '<button type="button" data-new-v54-adjust="-1" data-new-v54-child="' + String(child.id) + '" class="px-3 py-2 rounded-xl bg-slate-200 font-black">−1</button>' +
+                            '<button type="button" data-new-v54-adjust="1" data-new-v54-child="' + String(child.id) + '" class="px-3 py-2 rounded-xl bg-slate-200 font-black">+1</button>' +
+                            '<input type="number" min="0" max="100" step="1" value="' + value + '" data-new-v54-input="' + String(child.id) + '" class="w-24 px-3 py-2 rounded-xl border border-slate-300 bg-white font-black text-center">' +
+                            '<button type="button" data-new-v54-set="' + String(child.id) + '" class="px-4 py-2 rounded-xl bg-amber-400 text-slate-900 font-black">Set Happiness</button>' +
+                            '<span data-new-v54-status="' + String(child.id) + '" class="text-xs font-bold text-emerald-600"></span>' +
+                        '</div>' +
+                    '</div>';
+                }).join('') +
+            '</div>';
+
+        // NEW: One delegated listener handles all V54 controls. There are no V51/V52 attributes here.
+        panel.onclick = function(event) {
+            var button = event.target.closest('button');
+            if (!button || !panel.contains(button)) return;
+            event.preventDefault();
+            event.stopPropagation();
+
+            var childId = button.getAttribute('data-new-v54-child') || button.getAttribute('data-new-v54-set');
+            if (!childId) return;
+
+            if (button.hasAttribute('data-new-v54-adjust')) {
+                var child = newV54FindChild(childId);
+                if (!child) return;
+                var current = Number(child.happiness);
+                if (!Number.isFinite(current)) current = 80;
+                newV54SetHappiness(childId, current + Number(button.getAttribute('data-new-v54-adjust')));
+                return;
+            }
+
+            var input = panel.querySelector('[data-new-v54-input="' + childId + '"]');
+            if (input) newV54SetHappiness(childId, input.value);
+        };
+    }
+
+    // NEW: Keep this isolated panel available after the Parent Portal changes tabs/rerenders.
+    function newV54ScheduleRender() {
+        setTimeout(newV54Render, 0);
+        setTimeout(newV54Render, 150);
+        setTimeout(newV54Render, 500);
+    }
+
+    // NEW: Public setter for diagnostics/manual testing.
+    window.petpalSetGusHappiness = newV54SetHappiness;
+    window.petpalV54SetGusHappiness = newV54SetHappiness;
+
+    document.addEventListener('DOMContentLoaded', newV54ScheduleRender);
+    newV54ScheduleRender();
 })();
 </script>
