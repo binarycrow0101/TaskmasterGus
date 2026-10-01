@@ -9300,7 +9300,7 @@
         Array.prototype.forEach.call(cards, function(card) {
             if (target) return;
             var text = (card.textContent || '').trim();
-            if (text.indexOf('Next Hat') !== -1 || text.indexOf("Your parent will choose Gus\'s next hat.") !== -1) {
+            if (text.indexOf('Next Hat') !== -1 || text.indexOf("Gus is so excited for his next hat.") !== -1) {
                 target = card;
             }
         });
@@ -11770,5 +11770,176 @@
 
     document.addEventListener('DOMContentLoaded', newV54ScheduleRender);
     newV54ScheduleRender();
+})();
+</script>
+
+<!-- NEW: ISOLATED PARENT GUS REWARD CLAIM CONTROLS -->
+<script>
+(function() {
+    // NEW: Use the existing per-child reward history without changing its structure.
+    var NEW_GUS_CLAIM_HISTORY_KEY = 'gusChildRewardHistory';
+
+    // NEW: Read the existing per-child reward history.
+    function newClaimReadRewardHistory() {
+        try {
+            var raw = localStorage.getItem(NEW_GUS_CLAIM_HISTORY_KEY);
+            var parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // NEW: Save the existing per-child reward history after a parent claims one reward.
+    function newClaimWriteRewardHistory(history) {
+        try {
+            localStorage.setItem(NEW_GUS_CLAIM_HISTORY_KEY, JSON.stringify(history));
+        } catch (e) {}
+    }
+
+    // NEW: Remove exactly one reward from the selected child's history and verify the write.
+    function newClaimGusReward(childId, rewardId) {
+        if (!childId || !rewardId) return false;
+
+        var history = newClaimReadRewardHistory();
+        var id = String(childId);
+        var childHistory = Array.isArray(history[id]) ? history[id].slice() : [];
+        var targetId = String(rewardId);
+        var rewardIndex = childHistory.findIndex(function(item) {
+            return item && String(item.id || '') === targetId;
+        });
+
+        if (rewardIndex === -1) return false;
+
+        var reward = childHistory[rewardIndex];
+        var child = Array.isArray(appData.children)
+            ? appData.children.find(function(c) { return String(c.id) === id; })
+            : null;
+
+        var childName = child ? child.name : 'this child';
+        var rewardName = reward && reward.reward ? reward.reward : 'this reward';
+
+        if (!confirm('Mark "' + rewardName + '" as claimed for ' + childName + '? It will be removed from their Gus Reward History.')) {
+            return false;
+        }
+
+        // NEW: Remove the exact history record, leaving stars, stages, thresholds and rewards unchanged.
+        childHistory.splice(rewardIndex, 1);
+        history[id] = childHistory;
+
+        // NEW: Use the app's existing per-child persistence helper when available.
+        if (typeof newPerChildWrite === 'function') {
+            newPerChildWrite(NEW_GUS_CLAIM_HISTORY_KEY, history);
+        } else {
+            newClaimWriteRewardHistory(history);
+        }
+
+        // NEW: Verify the persisted history no longer contains the claimed record.
+        var verifyHistory = newClaimReadRewardHistory();
+        var verifyChildHistory = Array.isArray(verifyHistory[id]) ? verifyHistory[id] : [];
+        var stillPresent = verifyChildHistory.some(function(item) {
+            return item && String(item.id || '') === targetId;
+        });
+
+        if (stillPresent) {
+            return false;
+        }
+
+        // NEW: Rebuild the claim panel directly from the newly persisted history.
+        newRenderGusRewardClaimControls();
+
+        // NEW: If the kid history is currently visible, refresh it immediately as well.
+        if (typeof newRenderPerChildGusKidHistory === 'function') {
+            newRenderPerChildGusKidHistory();
+        }
+
+        return true;
+    }
+
+    // NEW: Render parent-only claim controls without changing the existing reward pool UI.
+    function newRenderGusRewardClaimControls() {
+        if (typeof appData === 'undefined' || !appData.isParentMode) return;
+
+        var manager = document.getElementById('newGusRewardManager');
+        if (!manager) return;
+
+        var panel = document.getElementById('newGusRewardClaimPanel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'newGusRewardClaimPanel';
+            panel.className = 'mt-4 pt-4 border-t border-slate-200';
+            manager.appendChild(panel);
+        }
+
+        var history = newClaimReadRewardHistory();
+        var children = Array.isArray(appData.children) ? appData.children : [];
+
+        var sections = children.map(function(child) {
+            var childHistory = Array.isArray(history[String(child.id)]) ? history[String(child.id)] : [];
+            var newestFirst = childHistory.slice().reverse();
+
+            return `
+                <div class="mb-3 last:mb-0">
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                        <div class="text-xs font-extrabold text-slate-700">${child.name || 'Child'}</div>
+                        <div class="text-[10px] font-bold text-slate-400">${childHistory.length} reward${childHistory.length === 1 ? '' : 's'}</div>
+                    </div>
+                    <div class="space-y-1.5">
+                        ${newestFirst.length ? newestFirst.map(function(item) {
+                            return `
+                                <div class="flex items-center justify-between gap-2 rounded-xl bg-amber-50 border border-amber-100 px-2.5 py-2">
+                                    <div class="min-w-0">
+                                        <div class="text-[10px] font-bold text-slate-700 truncate">🐶 ${item.reward || 'Gus Reward'}</div>
+                                        <div class="text-[9px] font-extrabold text-amber-700">${item.tier || ''} • ${item.date || ''} • ${item.starsRequired || 0} stars</div>
+                                    </div>
+                                    <button type="button"
+                                            data-new-claim-child="${child.id}"
+                                            data-new-claim-reward="${item.id}"
+                                            class="shrink-0 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-bold hover:bg-emerald-100">
+                                        Mark Claimed
+                                    </button>
+                                </div>
+                            `;
+                        }).join('') : '<div class="text-[10px] text-slate-400">No unclaimed Gus rewards for this child.</div>'}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        panel.innerHTML = `
+            <div class="text-[10px] font-extrabold tracking-wider text-indigo-600 uppercase mb-1">Gus Reward Claims</div>
+            <p class="text-xs text-slate-500 mb-3">When a child has received a reward, mark it as claimed. The reward will then be removed from that child’s Gus Reward History.</p>
+            ${sections || '<div class="text-xs text-slate-400">No children found.</div>'}
+        `;
+
+        panel.querySelectorAll('[data-new-claim-child]').forEach(function(button) {
+            button.onclick = function() {
+                newClaimGusReward(
+                    button.getAttribute('data-new-claim-child'),
+                    button.getAttribute('data-new-claim-reward')
+                );
+            };
+        });
+    }
+
+    // NEW: Hook the claim controls onto the latest parent portal renderer without modifying it.
+    var newClaimOriginalParentRender = window.renderParentPortal;
+    if (typeof newClaimOriginalParentRender === 'function') {
+        window.renderParentPortal = function() {
+            var result = newClaimOriginalParentRender.apply(this, arguments);
+            newRenderGusRewardClaimControls();
+            return result;
+        };
+    }
+
+    // NEW: Initialize the isolated parent claim controls.
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof renderParentPortal === 'function' && appData.isParentMode) {
+            newRenderGusRewardClaimControls();
+        }
+    });
+
+    // NEW: Public helper for testing without changing existing application functions.
+    window.petpalClaimGusReward = newClaimGusReward;
 })();
 </script>
